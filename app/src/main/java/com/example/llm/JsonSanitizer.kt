@@ -16,6 +16,7 @@ import com.example.model.EnvironmentTheme
 import com.example.model.FlowDirection
 import com.example.model.HandProp
 import com.example.model.HudWidget
+import com.example.model.LightingState
 import com.example.model.MetaphorVisual
 import com.example.model.PointerCallout
 import com.example.model.SceneScript
@@ -486,8 +487,34 @@ object JsonSanitizer {
         val calloutBanner = obj.optString("callout_banner", "").trim()
         val hudWidget = HudWidget.fromRaw(obj.optString("hud_widget", "NONE"))
         val hudLabel = obj.optString("hud_label", "").trim()
-        val hudFrom = obj.optInt("hud_from_value", 0).coerceIn(0, 100)
-        val hudTo = obj.optInt("hud_to_value", 100).coerceIn(0, 100)
+        val hudUnit = obj.optString("hud_unit", "%").trim().ifBlank { "%" }
+        val rawHudFrom = if (obj.has("hud_value_from")) obj.optInt("hud_value_from", 0) else obj.optInt("hud_from_value", 0)
+        val rawHudTo = if (obj.has("hud_value_to")) obj.optInt("hud_value_to", 100) else obj.optInt("hud_to_value", 100)
+        val hudFrom = rawHudFrom.coerceIn(0, 1_000_000)
+        val hudTo = rawHudTo.coerceIn(0, 1_000_000)
+        val hasCharacter: Boolean? = if (obj.has("has_character") && !obj.isNull("has_character")) {
+            obj.optBoolean("has_character")
+        } else {
+            null
+        }
+        val lightingState = LightingState.fromRaw(obj.optString("lighting_state", "AUTO"))
+        val sfxCues = buildList {
+            val sfxArr = obj.optJSONArray("sfx")
+            if (sfxArr != null) {
+                for (k in 0 until sfxArr.length()) {
+                    val item = sfxArr.optString(k, "").trim().uppercase()
+                    if (item.isNotEmpty()) add(item)
+                }
+            } else {
+                val sfxStr = obj.optString("sfx", "").trim()
+                if (sfxStr.isNotEmpty()) {
+                    sfxStr.split(',').forEach { part ->
+                        val clean = part.trim().uppercase()
+                        if (clean.isNotEmpty()) add(clean)
+                    }
+                }
+            }
+        }
 
         val checklistArray = obj.optJSONArray("checklist_items")
         val checklistItems = if (checklistArray != null) {
@@ -586,7 +613,11 @@ object JsonSanitizer {
             step2 = step2,
             step3 = step3,
             pointerCallouts = pointerCallouts,
-            visualDescription = visualDesc
+            visualDescription = visualDesc,
+            hasCharacter = hasCharacter,
+            lightingState = lightingState,
+            hudUnit = hudUnit,
+            sfxCues = sfxCues
         )
     }
 }

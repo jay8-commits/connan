@@ -1,7 +1,9 @@
 package com.example.render
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
+import com.example.model.ActorAction
 import com.example.model.ActorExpression
 import com.example.model.ActorRole
 import com.example.model.AnimationStyle
@@ -13,6 +15,7 @@ import com.example.model.CharacterPose
 import com.example.model.DynamicDiagramType
 import com.example.model.EnvironmentTheme
 import com.example.model.HandProp
+import com.example.model.LightingState
 import com.example.model.SceneScript
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
@@ -21,6 +24,7 @@ import com.example.model.WordTiming
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.Locale
 
 data class LockedCharacterProfile(
@@ -55,7 +59,8 @@ enum class MotionPresetEngine {
     ATMOSPHERIC_2D,
     STYLIZED_25D,
     PAPER_DIORAMA,
-    KINETIC_DIAGRAM
+    KINETIC_DIAGRAM,
+    CUTAWAY_SYSTEM
 }
 
 object MotionHtmlDirector {
@@ -77,6 +82,27 @@ object MotionHtmlDirector {
         "manok", "chicken", "sisiw", "rooster", "hen"
     )
 
+    private val EXPLICIT_CHARACTER_CUES = setOf(
+        "lola", "lolo", "nanay", "tatay", "tindera", "tindero", "bata", "lalaki", "babae",
+        "kaibigan", "kuya", "ate", "boss", "doktor", "nurse", "teacher", "guro",
+        "driver", "farmer", "magsasaka", "manok", "aso", "pusa", "isda", "character",
+        "person", "woman", "man", "worker", "tauhan"
+    )
+
+    private fun containsWholeWordCue(text: String, cues: Set<String>): Boolean {
+        val sb = StringBuilder()
+        for (i in 0..text.length) {
+            val ch = if (i < text.length) text[i] else ' '
+            if (ch.isLetter()) {
+                sb.append(ch.lowercaseChar())
+            } else if (sb.isNotEmpty()) {
+                if (sb.toString() in cues) return true
+                sb.setLength(0)
+            }
+        }
+        return false
+    }
+
     fun mapPresetEngine(style: AnimationStyle): MotionPresetEngine = when (style) {
         AnimationStyle.ATMOSPHERIC_2D_STORY,
         AnimationStyle.DARK_SUSPENSE,
@@ -90,9 +116,26 @@ object MotionHtmlDirector {
         AnimationStyle.STICKMAN_WHITEBOARD -> MotionPresetEngine.PAPER_DIORAMA
 
         AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM,
-        AnimationStyle.TECH_EXPLAINER,
+        AnimationStyle.TECH_EXPLAINER -> MotionPresetEngine.KINETIC_DIAGRAM
+
         AnimationStyle.CROSS_SECTION,
-        AnimationStyle.PIXEL_CUTAWAY_EXPLAINER -> MotionPresetEngine.KINETIC_DIAGRAM
+        AnimationStyle.PIXEL_CUTAWAY_EXPLAINER -> MotionPresetEngine.CUTAWAY_SYSTEM
+    }
+
+    /**
+     * Bans default standing presenter/host characters. Characters only render when explicitly
+     * requested (`hasCharacter == true`) or when the scene story explicitly depicts a named person/animal.
+     */
+    fun shouldRenderCharacter(scene: SceneScript, presetEngine: MotionPresetEngine): Boolean {
+        scene.hasCharacter?.let { return it }
+        if (presetEngine == MotionPresetEngine.CUTAWAY_SYSTEM ||
+            presetEngine == MotionPresetEngine.KINETIC_DIAGRAM
+        ) {
+            return false
+        }
+        if (scene.secondaryActorRole != null) return true
+        val combined = "${scene.tagalogNarration} ${scene.visualDescription}"
+        return containsWholeWordCue(combined, EXPLICIT_CHARACTER_CUES)
     }
 
     /**
@@ -268,7 +311,8 @@ object MotionHtmlDirector {
         scenes: List<TimelineScene>,
         style: AnimationStyle,
         totalDurationMs: Double,
-        includeAiBackdrops: Boolean = false
+        includeAiBackdrops: Boolean = false,
+        context: Context? = null
     ): String {
         val presetEngine = mapPresetEngine(style)
         val rawScripts = scenes.map { it.scene }
@@ -337,8 +381,12 @@ object MotionHtmlDirector {
                         put("calloutBanner", sc.calloutBanner.ifBlank { sc.topicPillLabel })
                         put("hudWidget", sc.hudWidget.name)
                         put("hudLabel", sc.hudLabel)
+                        put("hudUnit", sc.hudUnit)
                         put("hudFrom", sc.hudFromValue)
                         put("hudTo", sc.hudToValue)
+                        put("hasCharacter", shouldRenderCharacter(sc, presetEngine))
+                        put("lightingState", sc.lightingState.name)
+                        put("flowDirection", sc.flowDirection.name)
                         put("diagramType", sc.diagramType.name)
                         put("leftLabel", sc.leftLabel)
                         put("rightLabel", sc.rightLabel)
@@ -349,6 +397,18 @@ object MotionHtmlDirector {
                         put("titleCard", buildSceneTitleCard(sc, idx))
                         put("speechBubble", buildSpeechBubbleText(sc))
                         put("backdropUri", backdropDataUri)
+
+                        val pcArr = JSONArray()
+                        sc.pointerCallouts.forEach { pc ->
+                            pcArr.put(
+                                JSONObject().apply {
+                                    put("label", pc.label)
+                                    put("x", pc.x.toDouble())
+                                    put("y", pc.y.toDouble())
+                                }
+                            )
+                        }
+                        put("pointerCallouts", pcArr)
 
                         val capArr = JSONArray()
                         captionChunks.forEach { chunk ->
@@ -378,6 +438,18 @@ object MotionHtmlDirector {
 
         // Escape `</` so arbitrary script narration cannot break out of the embedded JSON script tag
         val safeJson = payloadJson.toString().replace("</", "<\\/")
+
+        if (presetEngine == MotionPresetEngine.CUTAWAY_SYSTEM) {
+            val loadedTemplate = loadCutawayTemplateHtml(context)
+            if (loadedTemplate != null) {
+                val dataTag = "<script id=\"storyboard-data\" type=\"application/json\">$safeJson</script>"
+                return if (loadedTemplate.contains("<!--STORYBOARD_DATA-->")) {
+                    loadedTemplate.replace("<!--STORYBOARD_DATA-->", dataTag)
+                } else {
+                    loadedTemplate.replace("</body>", "$dataTag\n</body>")
+                }
+            }
+        }
 
         return """
 <!DOCTYPE html>
@@ -461,6 +533,11 @@ object MotionHtmlDirector {
       <stop offset="65%" stop-color="#38BDF8" stop-opacity="0.10" />
       <stop offset="100%" stop-color="#38BDF8" stop-opacity="0" />
     </linearGradient>
+    <linearGradient id="rim-light-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.16" />
+      <stop offset="45%" stop-color="#38BDF8" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </linearGradient>
     <radialGradient id="vignette-grad" cx="50%" cy="46%" r="65%">
       <stop offset="48%" stop-color="#000000" stop-opacity="0" />
       <stop offset="100%" stop-color="#04060D" stop-opacity="0.64" />
@@ -469,6 +546,10 @@ object MotionHtmlDirector {
       <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="2" result="noise" />
       <feColorMatrix type="matrix" values="0 0 0 0 0.95  0 0 0 0 0.92  0 0 0 0 0.85  0 0 0 0.06 0" in="noise" result="tint" />
       <feComposite in="SourceGraphic" in2="tint" operator="over" />
+    </filter>
+    <filter id="cinema-grain" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="2" stitchTiles="stitch" result="noise" />
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.9 0" in="noise" result="mono" />
     </filter>
     <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="8" result="blur" />
@@ -498,9 +579,12 @@ object MotionHtmlDirector {
     <!-- Non-face-overlapping Motion Graphics, Kinetic Cards, Speech Bubbles & Diagrams -->
     <g id="kinetic-hud-layer"></g>
     <g id="speech-bubble-layer"></g>
+    <g id="editorial-hook-layer"></g>
 
-    <!-- Atmospheric Vignette -->
+    <!-- Cinema Post-Processing: Rim Light + Atmospheric Vignette + 0.035 Film Grain -->
+    <rect x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
     <rect id="vignette-rect" x="0" y="0" width="1080" height="1920" fill="url(#vignette-grad)" pointer-events="none" />
+    <rect id="cinema-grain-rect" x="0" y="0" width="1080" height="1920" fill="#FFFFFF" filter="url(#cinema-grain)" opacity="0.035" pointer-events="none" />
 
     <!-- Safe Zone Viral 1-2 Word Punchy Captions at y = 74% (1420px) -->
     <g id="caption-layer" transform="translate(540, 1420)"></g>
@@ -528,6 +612,7 @@ object MotionHtmlDirector {
   const elFg = document.getElementById("fg-silhouette");
   const elHud = document.getElementById("kinetic-hud-layer");
   const elSpeech = document.getElementById("speech-bubble-layer");
+  const elHook = document.getElementById("editorial-hook-layer");
   const elCaption = document.getElementById("caption-layer");
   const elVignette = document.getElementById("vignette-rect");
 
@@ -560,6 +645,14 @@ object MotionHtmlDirector {
   function easeOutExpoSnap(t) {
     const x = clamp(t, 0, 1);
     return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+  }
+
+  // Spring overshoot matching cubic-bezier(0.34, 1.56, 0.64, 1)
+  function springOvershoot(t) {
+    const x = clamp(t, 0, 1);
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
   }
 
   function easeInOut(t) {
@@ -738,37 +831,48 @@ object MotionHtmlDirector {
     }
   }
 
-  function renderHudAndDiagrams(scene, sceneElapsed, sceneDur) {
+  function renderHudAndDiagrams(scene, sceneElapsed, sceneDur, tSec) {
     clearNode(elHud);
     clearNode(elSpeech);
+    clearNode(elHook);
 
-    // Reserved SAFE ZONES (never overlap character hair/face around y=560..820)
-    // Top Kinetic Title Card or Status Pill (y: 115..265)
-    const entryEase = easeOutExpoSnap(clamp(sceneElapsed / 0.42, 0, 1));
-    const slideY = lerp(-40, 0, entryEase);
+    // Spring-physics entry curve (cubic-bezier(0.34, 1.56, 0.64, 1))
+    const entrySpring = springOvershoot(clamp(sceneElapsed / 0.44, 0, 1));
+    const entryOpacity = clamp(sceneElapsed / 0.18, 0, 1);
+    const slideY = lerp(-36, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.38, 0, 1)));
+    const beatLocal = sceneElapsed % 2.5;
+    const subPulse = beatLocal < 0.38 ? 1 + 0.035 * Math.sin((beatLocal / 0.38) * Math.PI) : 1.0;
 
     if (scene.titleCard) {
-      const cardG = svgEl("g", { transform: "translate(540," + (158 + slideY) + ") scale(" + lerp(0.88, 1.0, entryEase) + ")", opacity: entryEase }, elHud);
-      const pillLabel = scene.statusPill !== "NONE" ? scene.statusPill : "";
-      const cardW = Math.min(920, Math.max(460, scene.titleCard.length * 26 + 96));
+      const cardG = svgEl("g", {
+        transform: "translate(540," + (158 + slideY) + ") scale(" + (entrySpring * subPulse).toFixed(4) + ")",
+        opacity: entryOpacity
+      }, elHud);
+      const pill = scene.statusPill || "NONE";
+      const pillGlyph = pill === "PROBLEM" ? "✕ " : ((pill === "GOAL" || pill === "FIX") ? "✓ " : "");
+      const pillLabel = pill !== "NONE" ? (pillGlyph + pill) : "";
+      const cardW = Math.min(920, Math.max(460, (scene.titleCard.length + pillLabel.length) * 26 + 96));
       svgEl("rect", {
         x: -cardW / 2, y: -44, width: cardW, height: 88, rx: 22,
-        fill: "#0B1120", "fill-opacity": "0.90",
-        stroke: scene.statusPill === "PROBLEM" ? "#FF453A" : "#FFD60A",
+        fill: "#0B1120", "fill-opacity": "0.92",
+        stroke: pill === "PROBLEM" ? "#FF453A" : ((pill === "GOAL" || pill === "FIX") ? "#2DD4BF" : "#FFD60A"),
         "stroke-width": "4",
         class: "paper-shadow"
       }, cardG);
       const titleTxt = svgEl("text", {
         x: 0, y: 12, "text-anchor": "middle",
-        fill: scene.statusPill === "PROBLEM" ? "#FF6961" : "#FFD60A",
+        fill: pill === "PROBLEM" ? "#FF6961" : ((pill === "GOAL" || pill === "FIX") ? "#2DD4BF" : "#FFD60A"),
         "font-size": "36", class: "title-card-txt"
       }, cardG);
       titleTxt.textContent = (pillLabel ? "[" + pillLabel + "] " : "") + scene.titleCard;
     }
 
-    // Topic / Callout bracket card in top-right or top-left (strictly y <= 345, above character head)
+    // Topic / Callout bracket card in top safe zone (y <= 345)
     if (scene.calloutBanner) {
-      const badgeG = svgEl("g", { transform: "translate(540," + (258 + slideY * 0.6) + ")", opacity: entryEase }, elHud);
+      const badgeG = svgEl("g", {
+        transform: "translate(540," + (258 + slideY * 0.6) + ") scale(" + entrySpring.toFixed(4) + ")",
+        opacity: entryOpacity
+      }, elHud);
       const bw = Math.min(820, Math.max(320, scene.calloutBanner.length * 24 + 80));
       svgEl("rect", {
         x: -bw / 2, y: -32, width: bw, height: 64, rx: 16,
@@ -782,21 +886,20 @@ object MotionHtmlDirector {
       bt.textContent = scene.calloutBanner.toUpperCase();
     }
 
-    // Pop-in Speech Bubble (placed horizontally opposite character's facing side, y=420..520, never on hair/face)
-    if (scene.speechBubble) {
+    // Pop-in Speech Bubble (only shown if character is rendered, or as top-right callout)
+    if (scene.speechBubble && scene.hasCharacter) {
       const charOnRight = scene.shotFraming === "RULE_OF_THIRDS_RIGHT";
       const bx = charOnRight ? 330 : 750;
       const by = 435;
-      const pop = easeOutExpoSnap(clamp((sceneElapsed - 0.15) / 0.35, 0, 1));
+      const pop = springOvershoot(clamp((sceneElapsed - 0.15) / 0.36, 0, 1));
       if (pop > 0.02) {
-        const sg = svgEl("g", { transform: "translate(" + bx + "," + by + ") scale(" + pop + ")", opacity: pop }, elSpeech);
+        const sg = svgEl("g", { transform: "translate(" + bx + "," + by + ") scale(" + pop.toFixed(4) + ")", opacity: clamp((sceneElapsed - 0.15) / 0.18, 0, 1) }, elSpeech);
         const bw = Math.min(440, Math.max(220, scene.speechBubble.length * 19 + 64));
         svgEl("rect", {
           x: -bw / 2, y: -44, width: bw, height: 88, rx: 24,
           fill: "#FFFFFF", stroke: "#0F172A", "stroke-width": "5",
           class: "paper-shadow"
         }, sg);
-        // Tail pointing down toward shoulder/mouth side without touching head
         const tailDir = charOnRight ? 1 : -1;
         svgEl("polygon", {
           points: (tailDir * 45) + ",42 " + (tailDir * 95) + ",42 " + (tailDir * 120) + ",84",
@@ -811,10 +914,10 @@ object MotionHtmlDirector {
       }
     }
 
-    // Data-driven Kinetic Diagrams / HUD Gauges (placed cleanly in y=1115..1275 lower band, zero overlap on face!)
+    // Data-driven Kinetic Diagrams / HUD Gauges (placed cleanly in y=1115..1275 lower band)
     const prog = easeOutExpoSnap(clamp(sceneElapsed / Math.min(1.6, sceneDur * 0.65), 0, 1));
     if (scene.hudWidget !== "NONE" || scene.diagramType !== "NONE") {
-      const dg = svgEl("g", { transform: "translate(540, 1185)", opacity: entryEase }, elHud);
+      const dg = svgEl("g", { transform: "translate(540, 1185) scale(" + subPulse.toFixed(4) + ")", opacity: entryOpacity }, elHud);
       svgEl("rect", {
         x: -430, y: -74, width: 860, height: 148, rx: 24,
         fill: "#090D16", "fill-opacity": "0.90",
@@ -825,9 +928,9 @@ object MotionHtmlDirector {
       if (scene.diagramType === "BEFORE_AFTER_SPLIT") {
         svgEl("line", { x1: 0, y1: -56, x2: 0, y2: 56, stroke: "#475569", "stroke-width": "3" }, dg);
         const lLbl = svgEl("text", { x: -215, y: 10, "text-anchor": "middle", fill: "#FF453A", "font-size": "32", class: "diagram-txt" }, dg);
-        lLbl.textContent = scene.leftLabel || "BEFORE";
+        lLbl.textContent = "✕ " + (scene.leftLabel || "BEFORE");
         const rLbl = svgEl("text", { x: 215, y: 10, "text-anchor": "middle", fill: "#34D399", "font-size": "32", class: "diagram-txt" }, dg);
-        rLbl.textContent = scene.rightLabel || "AFTER";
+        rLbl.textContent = "✓ " + (scene.rightLabel || "AFTER");
       } else if (scene.diagramType === "STEP_FLOW_ARROWS") {
         const steps = [scene.step1 || "STEP 1", scene.step2 || "STEP 2", scene.step3 || "STEP 3"];
         for (let i = 0; i < 3; i++) {
@@ -851,15 +954,41 @@ object MotionHtmlDirector {
           }
         }
       } else {
-        // Animated counter gauge (hudFrom -> hudTo)
-        const val = Math.round(lerp(scene.hudFrom, scene.hudTo, prog));
+        const fromV = Number(scene.hudFrom || 0);
+        const toV = Number(scene.hudTo != null ? scene.hudTo : 100);
+        const val = Math.round(lerp(fromV, toV, prog));
+        const unit = scene.hudUnit || "%";
+        const maxRef = Math.max(100, fromV, toV);
+        const barFrac = unit === "%" ? clamp(val / 100, 0.04, 1) : clamp(val / maxRef, 0.05, 1);
         const lbl = svgEl("text", { x: -380, y: -18, fill: "#CBD5E1", "font-size": "26", class: "diagram-txt" }, dg);
         lbl.textContent = (scene.hudLabel || "PROGRESS").toUpperCase();
         const num = svgEl("text", { x: 380, y: -14, "text-anchor": "end", fill: "#FFD60A", "font-size": "40", class: "title-card-txt" }, dg);
-        num.textContent = val + "%";
+        num.textContent = unit === "₱" ? ("₱" + val.toLocaleString("en-US")) : (val + (unit === "%" ? "%" : " " + unit));
         svgEl("rect", { x: -380, y: 14, width: 760, height: 28, rx: 14, fill: "#1E293B" }, dg);
-        svgEl("rect", { x: -380, y: 14, width: Math.max(28, 7.6 * clamp(val, 0, 100)), height: 28, rx: 14, fill: "#2DD4BF" }, dg);
+        svgEl("rect", { x: -380, y: 14, width: Math.max(28, 760 * barFrac), height: 28, rx: 14, fill: "#2DD4BF" }, dg);
       }
+    }
+
+    // Bold Editorial Hook Title Card during first 1.8s (0.0s .. 1.8s)
+    if (tSec <= 1.8 && SCENES.length > 0) {
+      const hookTitle = (SCENES[0].titleCard || SCENES[0].calloutBanner || "ALAM MO BA ITO?").toUpperCase();
+      const hookSpring = springOvershoot(clamp(tSec / 0.36, 0, 1));
+      const exitOpacity = tSec > 1.45 ? clamp(1 - (tSec - 1.45) / 0.35, 0, 1) : 1;
+      const hg = svgEl("g", {
+        id: "editorial-hook-overlay",
+        transform: "translate(540, 365) scale(" + hookSpring.toFixed(4) + ")",
+        opacity: exitOpacity.toFixed(3),
+        class: "paper-shadow"
+      }, elHook);
+      svgEl("rect", {
+        x: -440, y: -68, width: 880, height: 136, rx: 24,
+        fill: "#090E1A", "fill-opacity": "0.94", stroke: "#FFD60A", "stroke-width": "4.5"
+      }, hg);
+      svgEl("rect", { x: -410, y: -42, width: 12, height: 84, rx: 6, fill: "#FF453A" }, hg);
+      const ht = svgEl("text", {
+        x: 10, y: 14, "text-anchor": "middle", fill: "#FFFFFF", "font-size": "40", class: "title-card-txt"
+      }, hg);
+      ht.textContent = hookTitle.slice(0, 28);
     }
   }
 
@@ -1071,8 +1200,57 @@ object MotionHtmlDirector {
     svgEl("circle", { cx: 0, cy: 0, r: 14, fill: profile.skinColor, stroke: "#0B0E14", "stroke-width": "3.5" }, wristG);
   }
 
+  function renderFullSceneFocalProp(scene, sceneElapsed, tSec) {
+    // Rich full-bleed vector centerpiece when no character is present (100% environment/object focus)
+    const bob = Math.sin(tSec * 2.2) * 8;
+    const enterSpring = springOvershoot(clamp(sceneElapsed / 0.48, 0, 1));
+    const fg = svgEl("g", {
+      id: "full-scene-focal",
+      transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
+      class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
+    }, elCast);
+
+    if (scene.theme === "BANK_VAULT_FINANCE" || scene.handProp === "MONEY_BAG") {
+      // Glowing Golden Vault Pedestal & Coin Stack (no standing host character)
+      svgEl("ellipse", { cx: 0, cy: 175, rx: 190, ry: 32, fill: "#020617", opacity: "0.48" }, fg);
+      svgEl("rect", { x: -135, y: -95, width: 270, height: 240, rx: 28, fill: "#0F766E", stroke: "#141821", "stroke-width": "5" }, fg);
+      svgEl("circle", { cx: 0, cy: 25, r: 72, fill: "#FACC15", stroke: "#141821", "stroke-width": "5" }, fg);
+      svgEl("circle", { cx: 0, cy: 25, r: 44, fill: "#FEF08A", stroke: "#B45309", "stroke-width": "3.5" }, fg);
+      const pt = svgEl("text", { x: 0, y: 42, "text-anchor": "middle", fill: "#78350F", "font-size": "52", class: "title-card-txt" }, fg);
+      pt.textContent = "₱";
+    } else if (scene.theme === "MODERN_OFFICE_DESK" || scene.handProp === "PHONE_SCREEN") {
+      // Large Illuminated Workstation / Analytics Display
+      svgEl("ellipse", { cx: 0, cy: 180, rx: 210, ry: 30, fill: "#020617", opacity: "0.45" }, fg);
+      svgEl("rect", { x: -175, y: -125, width: 350, height: 225, rx: 18, fill: "#0F172A", stroke: "#38BDF8", "stroke-width": "5" }, fg);
+      svgEl("rect", { x: -152, y: -102, width: 304, height: 178, rx: 10, fill: "#1E293B" }, fg);
+      const barH = [65, 95, 130, 108, 148];
+      for (let b = 0; b < 5; b++) {
+        const pulse = 1 + 0.08 * Math.sin(tSec * 4 + b);
+        const bh = barH[b] * pulse;
+        svgEl("rect", {
+          x: -120 + b * 54, y: 56 - bh, width: 34, height: bh, rx: 6,
+          fill: b === 4 ? "#2DD4BF" : "#38BDF8"
+        }, fg);
+      }
+      svgEl("rect", { x: -34, y: 100, width: 68, height: 42, fill: "#475569" }, fg);
+      svgEl("rect", { x: -95, y: 138, width: 190, height: 18, rx: 9, fill: "#64748B" }, fg);
+    } else {
+      // High-Craft Vector Scene Emblem / Kinetic Focal Core
+      svgEl("ellipse", { cx: 0, cy: 175, rx: 180, ry: 28, fill: "#020617", opacity: "0.42" }, fg);
+      svgEl("circle", { cx: 0, cy: 15, r: 128, fill: "#1E293B", stroke: "#38BDF8", "stroke-width": "5" }, fg);
+      svgEl("circle", { cx: 0, cy: 15, r: 92, fill: "#0F172A", stroke: "#FFD60A", "stroke-width": "3.5", "stroke-dasharray": "18 12" }, fg);
+      svgEl("polygon", { points: "-28,-30 48,15 -28,60", fill: "#FFD60A", stroke: "#141821", "stroke-width": "4" }, fg);
+    }
+  }
+
   function renderCast(scene, sceneElapsed, tSec) {
     clearNode(elCast);
+    // Strict No-Default-Host Rule: only draw characters if story explicitly requires one
+    if (!scene.hasCharacter) {
+      renderFullSceneFocalProp(scene, sceneElapsed, tSec);
+      return;
+    }
+
     const isPaper = PRESET === "PAPER_DIORAMA";
     const mainProf = PROFILES[scene.actorRole] || PROFILES["HERO"] || {
       gender: "MALE", age: "YOUNG_ADULT", outfit: "HOODIE",
@@ -1125,6 +1303,14 @@ object MotionHtmlDirector {
 
   function renderWorldFx(scene, tSec) {
     clearNode(elFx);
+    if (scene.lightingState === "RAIN_STORM") {
+      for (let r = 0; r < 16; r++) {
+        const rf = (tSec * 1.8 + r * 0.19) % 1;
+        const rx = 80 + (r * 63) % 940 - rf * 60;
+        const ry = 180 + rf * 1120;
+        svgEl("line", { x1: rx, y1: ry, x2: rx - 12, y2: ry + 24, stroke: "#7DD3FC", "stroke-width": "3", opacity: "0.55" }, elFx);
+      }
+    }
     if (scene.worldFx === "COIN_RAIN") {
       for (let i = 0; i < 6; i++) {
         const cx = 150 + i * 155;
@@ -1146,25 +1332,33 @@ object MotionHtmlDirector {
   function applyCameraMotion(scene, sceneElapsed, sceneDur, tSec) {
     const p = clamp(sceneElapsed / Math.max(0.5, sceneDur), 0, 1);
     const ep = easeInOut(p);
-    let scale = 1.0, tx = 0, ty = 0;
+
+    // 2.5s Retention Sub-Beat (1.04x subtle emphasis punch-in) + ±3px continuous camera drift
+    const beatT = sceneElapsed % 2.5;
+    const subBeatZoom = beatT < 0.38 ? 1 + 0.04 * Math.sin((beatT / 0.38) * Math.PI) : 1.0;
+    const driftX = Math.sin(tSec * 1.1) * 3.0;
+    const driftY = Math.cos(tSec * 0.85) * 3.0;
+
+    let scale = 1.0, tx = driftX, ty = driftY;
     switch (scene.cameraMotion) {
       case "ZOOM_IN": scale = lerp(1.0, 1.10, ep); break;
       case "ZOOM_OUT": scale = lerp(1.11, 1.0, ep); break;
-      case "PAN_LEFT": scale = 1.06; tx = lerp(34, -34, ep); break;
-      case "PAN_RIGHT": scale = 1.06; tx = lerp(-34, 34, ep); break;
-      case "WHIP_PAN_LEFT": scale = 1.06; tx = lerp(110, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.45, 0, 1))); break;
-      case "WHIP_PAN_RIGHT": scale = 1.06; tx = lerp(-110, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.45, 0, 1))); break;
+      case "PAN_LEFT": scale = 1.06; tx += lerp(34, -34, ep); break;
+      case "PAN_RIGHT": scale = 1.06; tx += lerp(-34, 34, ep); break;
+      case "WHIP_PAN_LEFT": scale = 1.06; tx += lerp(110, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.45, 0, 1))); break;
+      case "WHIP_PAN_RIGHT": scale = 1.06; tx += lerp(-110, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.45, 0, 1))); break;
       case "IMPACT_SHAKE":
       case "SHAKE":
         scale = 1.05;
         const decay = Math.max(0, 1 - sceneElapsed / 0.75);
-        tx = Math.sin(tSec * 44) * 16 * decay;
-        ty = Math.cos(tSec * 38) * 12 * decay;
+        tx += Math.sin(tSec * 44) * 16 * decay;
+        ty += Math.cos(tSec * 38) * 12 * decay;
         break;
       default:
         scale = lerp(1.01, 1.05, ep);
         break;
     }
+    scale *= subBeatZoom;
     elCamera.setAttribute(
       "transform",
       "translate(540,960) scale(" + scale.toFixed(4) + ") translate(" + (-540 + tx).toFixed(2) + "," + (-960 + ty).toFixed(2) + ")"
@@ -1237,9 +1431,9 @@ object MotionHtmlDirector {
     animateDustMotes(tSec);
     renderWorldFx(scene, tSec);
     renderCast(scene, sceneElapsed, tSec);
-    renderHudAndDiagrams(scene, sceneElapsed, sceneDur);
+    renderHudAndDiagrams(scene, sceneElapsed, sceneDur, tSec);
     renderViralCaptions(scene, tSec);
-    elVignette.setAttribute("opacity", PRESET === "ATMOSPHERIC_2D" ? "0.95" : "0.45");
+    elVignette.setAttribute("opacity", PRESET === "ATMOSPHERIC_2D" ? "0.95" : "0.52");
     return "ok";
   };
 
@@ -1301,6 +1495,27 @@ object MotionHtmlDirector {
             if (valid) return trimmed.uppercase(Locale.US)
         }
         return fallback
+    }
+
+    private fun loadCutawayTemplateHtml(context: Context?): String? {
+        if (context != null) {
+            runCatching {
+                context.assets.open("templates/CutawayExplainerTemplate.html")
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { return it.readText() }
+            }
+        }
+        // Fallback for JVM unit tests running from module or root working directory
+        val candidates = listOf(
+            File("src/main/assets/templates/CutawayExplainerTemplate.html"),
+            File("app/src/main/assets/templates/CutawayExplainerTemplate.html")
+        )
+        for (file in candidates) {
+            if (file.exists() && file.isFile) {
+                runCatching { return file.readText(Charsets.UTF_8) }
+            }
+        }
+        return null
     }
 
     private fun encodeBitmapToDataUri(bmp: Bitmap): String {

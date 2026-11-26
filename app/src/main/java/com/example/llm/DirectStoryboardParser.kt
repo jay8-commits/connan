@@ -8,6 +8,8 @@ import com.example.model.CameraMotion
 import com.example.model.CharacterPose
 import com.example.model.EnvironmentTheme
 import com.example.model.HandProp
+import com.example.model.HudWidget
+import com.example.model.LightingState
 import com.example.model.SceneScript
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
@@ -254,7 +256,7 @@ object DirectStoryboardParser {
             val shotFraming = SHOT_FRAMING_ROTATION[idx % SHOT_FRAMING_ROTATION.size]
             val actorAction = mapActionForPose(characterPose)
             val expression = mapExpressionForPose(characterPose)
-            val contextCue = inferContextCue(cleanNarration, idx)
+            val contextCue = inferContextCue(cleanNarration, idx, style)
             val visualDesc = buildStyleVisualDescription(
                 narration = cleanNarration,
                 style = style,
@@ -272,6 +274,10 @@ object DirectStoryboardParser {
                 worldFx = contextCue.worldFx,
                 statusPill = contextCue.statusPill,
                 calloutBanner = contextCue.calloutBanner,
+                hudWidget = contextCue.hudWidget,
+                hudLabel = contextCue.hudLabel,
+                hudFromValue = contextCue.hudFrom,
+                hudToValue = contextCue.hudTo,
                 shotFraming = shotFraming,
                 characterPose = characterPose,
                 handProp = contextCue.handProp,
@@ -282,7 +288,10 @@ object DirectStoryboardParser {
                 characterOutfit = lockedOutfit,
                 outfitColorHex = lockedOutfitHex,
                 hairColorHex = lockedHairHex,
-                visualDescription = visualDesc
+                visualDescription = visualDesc,
+                hasCharacter = contextCue.hasCharacter,
+                lightingState = contextCue.lightingState,
+                hudUnit = contextCue.hudUnit
             )
         }
     }
@@ -546,23 +555,58 @@ object DirectStoryboardParser {
         val calloutBanner: String,
         val handProp: HandProp,
         val environmentTheme: EnvironmentTheme,
-        val settingPhrase: String
+        val settingPhrase: String,
+        val hasCharacter: Boolean,
+        val lightingState: LightingState,
+        val hudWidget: HudWidget,
+        val hudLabel: String,
+        val hudFrom: Int,
+        val hudTo: Int,
+        val hudUnit: String
     )
 
-    private fun inferContextCue(narration: String, index: Int): SceneContextCue {
+    private val EXPLICIT_CHARACTER_TOKENS = setOf(
+        "lola", "lolo", "nanay", "tatay", "tindera", "tindero", "bata", "lalaki", "babae",
+        "kaibigan", "kuya", "ate", "boss", "doktor", "nurse", "teacher", "guro",
+        "driver", "farmer", "magsasaka", "manok", "aso", "pusa", "isda", "character",
+        "tao", "tauhan"
+    )
+
+    private fun containsWholeWordToken(text: String, tokens: Set<String>): Boolean {
+        val sb = StringBuilder()
+        for (i in 0..text.length) {
+            val ch = if (i < text.length) text[i] else ' '
+            if (ch.isLetter()) {
+                sb.append(ch.lowercaseChar())
+            } else if (sb.isNotEmpty()) {
+                if (sb.toString() in tokens) return true
+                sb.setLength(0)
+            }
+        }
+        return false
+    }
+
+    private fun inferContextCue(
+        narration: String,
+        index: Int,
+        style: AnimationStyle = AnimationStyle.ATMOSPHERIC_2D_STORY
+    ): SceneContextCue {
         val lower = narration.lowercase()
         val isFinance = listOf("pera", "sahod", "sweldo", "ipon", "piso", "yaman", "negosyo", "presyo").any { lower.contains(it) }
         val isProblem = listOf("ubos", "kulang", "utang", "hirap", "mali", "sayang", "gastos", "problema", "bakit").any { lower.contains(it) }
         val isSolution = listOf("sikreto", "diskarte", "subukan", "itabi", "solusyon", "gawin", "simulan", "tips").any { lower.contains(it) }
         val isOffice = listOf("trabaho", "opisina", "bos", "laptop", "online", "bpo", "meeting").any { lower.contains(it) }
         val isKitchen = listOf("kape", "umaga", "almusal", "lutuin", "kusina", "kain").any { lower.contains(it) }
-        val isMystery = listOf("gabi", "dilim", "takot", "sikreto", "multo", "nakakagulat").any { lower.contains(it) }
+        val isMystery = listOf("gabi", "dilim", "takot", "sikreto", "multo", "nakakagulat", "madaling araw").any { lower.contains(it) }
+        val isStorm = listOf("ulan", "bagyo", "kulog", "baha", "storm", "rain").any { lower.contains(it) }
+        val isEnergyOrSystem = listOf("solar", "kuryente", "battery", "watts", "tubig", "tangke", "pipe", "aquaponics", "filter", "pump", "sensor").any { lower.contains(it) }
 
         val theme = when {
             isMystery -> EnvironmentTheme.DRAMATIC_SUNSET_CITY
             isFinance && isSolution -> EnvironmentTheme.BANK_VAULT_FINANCE
             isOffice -> EnvironmentTheme.MODERN_OFFICE_DESK
             isKitchen -> EnvironmentTheme.BRIGHT_MORNING_KITCHEN
+            isEnergyOrSystem -> EnvironmentTheme.SCIENCE_LAB_INTERIOR
             else -> ENVIRONMENT_ROTATION[index % ENVIRONMENT_ROTATION.size]
         }
 
@@ -605,6 +649,38 @@ object DirectStoryboardParser {
             else -> ""
         }
 
+        val lightingState = when {
+            isStorm -> LightingState.RAIN_STORM
+            isMystery -> LightingState.NIGHT
+            isKitchen || index % 3 == 0 -> LightingState.SUNNY
+            else -> LightingState.AUTO
+        }
+
+        val hasCharacter = style != AnimationStyle.CROSS_SECTION &&
+            style != AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM &&
+            containsWholeWordToken(narration, EXPLICIT_CHARACTER_TOKENS)
+
+        val (hudWidget, hudLabel, hudFrom, hudTo, hudUnit) = when {
+            lower.contains("watt") || lower.contains("solar") || lower.contains("kuryente") ->
+                Tuple5(HudWidget.PROGRESS_GAUGE, "SOLAR OUTPUT", 120, 840, "W")
+            lower.contains("volt") || lower.contains("battery") ->
+                Tuple5(HudWidget.PROGRESS_GAUGE, "CELL VOLTAGE", 11, 14, "V")
+            lower.contains("ppm") || lower.contains("filter") || lower.contains("tubig") || lower.contains("aquaponics") ->
+                Tuple5(HudWidget.PROGRESS_GAUGE, "WATER PURITY", 420, 48, "PPM")
+            isFinance ->
+                Tuple5(
+                    if (style == AnimationStyle.CROSS_SECTION) HudWidget.PROGRESS_GAUGE else HudWidget.NONE,
+                    "IPON SAVINGS",
+                    if (isProblem) 85 else 20,
+                    if (isProblem) 12 else 92,
+                    "%"
+                )
+            style == AnimationStyle.CROSS_SECTION ->
+                Tuple5(HudWidget.PROGRESS_GAUGE, "SYSTEM FLOW", 22, 94, "%")
+            else ->
+                Tuple5(HudWidget.NONE, "", 0, 100, "%")
+        }
+
         val settingPhrase = when (theme) {
             EnvironmentTheme.BANK_VAULT_FINANCE -> "polished golden finance vault and clean savings diorama"
             EnvironmentTheme.MODERN_OFFICE_DESK -> "modern sunlit Filipino workspace desk"
@@ -612,6 +688,7 @@ object DirectStoryboardParser {
             EnvironmentTheme.DRAMATIC_SUNSET_CITY -> "moody twilight urban alley with dramatic streetlamps"
             EnvironmentTheme.COZY_BEDROOM_MIDNIGHT -> "cozy evening bedroom illuminated by warm lamp glow"
             EnvironmentTheme.SUNNY_MARKET_STREET -> "lively sunny Philippine neighborhood street"
+            EnvironmentTheme.SCIENCE_LAB_INTERIOR -> "detailed split-level cutaway system cross-section"
             else -> "vibrant animated stage backdrop"
         }
 
@@ -622,9 +699,18 @@ object DirectStoryboardParser {
             calloutBanner = callout,
             handProp = handProp,
             environmentTheme = theme,
-            settingPhrase = settingPhrase
+            settingPhrase = settingPhrase,
+            hasCharacter = hasCharacter,
+            lightingState = lightingState,
+            hudWidget = hudWidget,
+            hudLabel = hudLabel,
+            hudFrom = hudFrom,
+            hudTo = hudTo,
+            hudUnit = hudUnit
         )
     }
+
+    private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     private fun mapActionForPose(pose: CharacterPose): ActorAction = when (pose) {
         CharacterPose.THREE_QUARTER_EXPLAIN -> ActorAction.TALK_BOUNCE

@@ -563,7 +563,8 @@ class VideoGenerationService : Service() {
                     scenes = timelineScenes,
                     style = style,
                     totalDurationMs = stitchedAudio.totalDurationMs,
-                    includeAiBackdrops = settings.enableAiBackgroundArt
+                    includeAiBackdrops = settings.enableAiBackgroundArt,
+                    context = applicationContext
                 )
                 val renderer = WebViewFrameRenderer.create(
                     context = applicationContext,

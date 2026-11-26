@@ -25,6 +25,7 @@ import kotlin.math.tanh
 import kotlin.random.Random
 
 typealias PcmAudioStitcher = AudioPcmStitcher
+typealias AudioMixer = AudioPcmStitcher
 
 data class DecodedSceneAudio(
     val pcm44100MonoBytes: ByteArray,
@@ -444,98 +445,18 @@ object AudioPcmStitcher {
             )
         }
 
-        // 3. Synthesize and mix frame-accurate procedural SFX for scene events
-        for (idx in scenes.indices) {
-            val scene = scenes[idx]
-            val startMs = sceneStartMs.getOrNull(idx) ?: continue
-            val endMs = sceneEndMs.getOrNull(idx) ?: startMs
-            val durMs = (endMs - startMs).coerceAtLeast(300.0)
-            val startSample = ((startMs / 1000.0) * TARGET_SAMPLE_RATE).toInt().coerceIn(0, sampleCount - 1)
-
-            // Soft filtered noise whoosh on whip-pan transitions
-            if (scene.cameraMotion == CameraMotion.WHIP_PAN_LEFT ||
-                scene.cameraMotion == CameraMotion.WHIP_PAN_RIGHT ||
-                (style == AnimationStyle.PAPER_DIORAMA && idx > 0)
-            ) {
-                addFilteredWhooshSfx(mix, startSample, seed = 409 + idx)
-            }
-
-            // Crisp pitch-envelope pop when status_pill or callout_banner appears
-            val effectivePill = if (scene.statusPill != StatusPill.NONE) {
-                scene.statusPill
-            } else if (style == AnimationStyle.TECH_EXPLAINER || style == AnimationStyle.CROSS_SECTION) {
-                when ((scene.sceneId - 1).coerceAtLeast(0) % 4) {
-                    0 -> StatusPill.GOAL
-                    1 -> StatusPill.PROBLEM
-                    2 -> StatusPill.FIX
-                    else -> StatusPill.SECRET
-                }
-            } else StatusPill.NONE
-
-            val hasPill = effectivePill != StatusPill.NONE
-            val hasCallout = scene.calloutBanner.isNotBlank() ||
-                style == AnimationStyle.TECH_EXPLAINER ||
-                style == AnimationStyle.CROSS_SECTION
-
-            if (hasPill) {
-                val pillSample = startSample + (0.045 * TARGET_SAMPLE_RATE).toInt()
-                addPitchPopSfx(mix, pillSample, startFreqHz = 480.0, peakFreqHz = 1120.0, gain = 0.18f)
-            }
-            if (effectivePill == StatusPill.PROBLEM) {
-                val thudSample = startSample + (0.060 * TARGET_SAMPLE_RATE).toInt()
-                addSubBassThudSfx(mix, thudSample, gain = 0.30f)
-            }
-            if (hasCallout) {
-                val calloutSample = startSample + (0.110 * TARGET_SAMPLE_RATE).toInt()
-                addPitchPopSfx(mix, calloutSample, startFreqHz = 560.0, peakFreqHz = 1360.0, gain = 0.21f)
-            }
-
-            // High metallic double-note "ka-ching" chime during COIN_RAIN
-            if (scene.worldFx == WorldFx.COIN_RAIN) {
-                val offsetsMs = listOf(160.0, 960.0, 1820.0, 2680.0)
-                offsetsMs.forEachIndexed { hitIdx, off ->
-                    if (off < durMs - 240.0) {
-                        val s = startSample + ((off / 1000.0) * TARGET_SAMPLE_RATE).toInt()
-                        val base = 1567.98 * (1.0 + hitIdx * 0.04)
-                        addMetallicChimeSfx(mix, s, baseFreqHz = base, gain = 0.14f)
-                        addMetallicChimeSfx(
-                            mix = mix,
-                            startSample = s + (0.075 * TARGET_SAMPLE_RATE).toInt(),
-                            baseFreqHz = base * 1.3348,
-                            gain = 0.15f
-                        )
-                    }
-                }
-            }
-
-            // Crisp ascending chime tick for each ANIMATED_CHECKLIST row reveal (every 0.6s)
-            val effectiveWidget = if (scene.hudWidget != HudWidget.NONE) {
-                scene.hudWidget
-            } else if ((style == AnimationStyle.TECH_EXPLAINER || style == AnimationStyle.CROSS_SECTION) &&
-                ((scene.sceneId - 1).coerceAtLeast(0) % 3 == 2)
-            ) {
-                HudWidget.ANIMATED_CHECKLIST
-            } else {
-                HudWidget.NONE
-            }
-            if (effectiveWidget == HudWidget.ANIMATED_CHECKLIST) {
-                val itemCount = scene.checklistItems.size.coerceIn(1, 4).let {
-                    if (scene.checklistItems.isEmpty()) 3 else it
-                }
-                for (itemIdx in 0 until itemCount) {
-                    val tickMs = itemIdx * 600.0 + 140.0
-                    if (tickMs < durMs - 120.0) {
-                        val s = startSample + ((tickMs / 1000.0) * TARGET_SAMPLE_RATE).toInt()
-                        addMetallicChimeSfx(
-                            mix = mix,
-                            startSample = s,
-                            baseFreqHz = 1318.51 * (1.0 + itemIdx * 0.11),
-                            gain = 0.13f
-                        )
-                    }
-                }
-            }
-        }
+        // 3. Synthesize and mix frame-accurate procedural SFX via SfxTimelineMixer
+        val sfxEvents = SfxTimelineMixer.buildSfxTimeline(
+            scenes = scenes,
+            sceneStartMs = sceneStartMs,
+            sceneEndMs = sceneEndMs,
+            style = style
+        )
+        SfxTimelineMixer.mixSfxEventsIntoBuffer(
+            mix = mix,
+            events = sfxEvents,
+            sampleRate = TARGET_SAMPLE_RATE
+        )
 
         // 4. Soft-saturation limiter + 16-bit PCM pack
         val outBytes = ByteArray(sampleCount * 2)
@@ -624,98 +545,6 @@ object AudioPcmStitcher {
             // Sidechain ducking: 10% when speech is active, swells to 28% during pauses
             val gain = (BGM_PAUSE_LEVEL - (BGM_PAUSE_LEVEL - BGM_DUCKED_LEVEL) * speechEnvelope[i]) * edgeFade
             mix[i] += rawBgm * gain
-        }
-    }
-
-    private fun addFilteredWhooshSfx(
-        mix: FloatArray,
-        startSample: Int,
-        seed: Int
-    ) {
-        val len = (0.30 * TARGET_SAMPLE_RATE).toInt()
-        val rng = Random(seed)
-        var lp = 0f
-        for (k in 0 until len) {
-            val pos = startSample + k
-            if (pos !in mix.indices) break
-            val frac = k.toFloat() / len.toFloat()
-            val env = sin(PI * frac).toFloat()
-            val cutoff = 0.04f + 0.24f * env
-            val white = rng.nextFloat() * 2f - 1f
-            lp += (white - lp) * cutoff
-            mix[pos] += lp * env * 0.24f
-        }
-    }
-
-    private fun addPitchPopSfx(
-        mix: FloatArray,
-        startSample: Int,
-        startFreqHz: Double,
-        peakFreqHz: Double,
-        gain: Float
-    ) {
-        val len = (0.09 * TARGET_SAMPLE_RATE).toInt()
-        val attackSamples = (0.004 * TARGET_SAMPLE_RATE).toInt().coerceAtLeast(1)
-        var phase = 0.0
-        for (k in 0 until len) {
-            val pos = startSample + k
-            if (pos !in mix.indices) break
-            val t = k.toDouble() / TARGET_SAMPLE_RATE.toDouble()
-            val frac = k.toDouble() / len.toDouble()
-            val freq = if (frac < 0.45) {
-                startFreqHz + (peakFreqHz - startFreqHz) * (frac / 0.45)
-            } else {
-                peakFreqHz - (peakFreqHz - startFreqHz * 1.45) * ((frac - 0.45) / 0.55)
-            }
-            phase += (2.0 * PI * freq) / TARGET_SAMPLE_RATE.toDouble()
-            val attack = if (k < attackSamples) k.toFloat() / attackSamples else 1f
-            val decay = exp(-t * 34.0).toFloat()
-            mix[pos] += sin(phase).toFloat() * attack * decay * gain
-        }
-    }
-
-    private fun addMetallicChimeSfx(
-        mix: FloatArray,
-        startSample: Int,
-        baseFreqHz: Double,
-        gain: Float
-    ) {
-        val len = (0.26 * TARGET_SAMPLE_RATE).toInt()
-        val attackSamples = (0.002 * TARGET_SAMPLE_RATE).toInt().coerceAtLeast(1)
-        for (k in 0 until len) {
-            val pos = startSample + k
-            if (pos !in mix.indices) break
-            val t = k.toDouble() / TARGET_SAMPLE_RATE.toDouble()
-            val attack = if (k < attackSamples) k.toFloat() / attackSamples else 1f
-            val decay1 = exp(-t * 15.0)
-            val decay2 = exp(-t * 24.0)
-            val wave = (
-                sin(2.0 * PI * baseFreqHz * t) * 0.55 * decay1 +
-                    sin(2.0 * PI * (baseFreqHz * 1.503) * t) * 0.30 * decay1 +
-                    sin(2.0 * PI * (baseFreqHz * 2.01) * t) * 0.22 * decay2
-                ).toFloat()
-            mix[pos] += wave * attack * gain
-        }
-    }
-
-    private fun addSubBassThudSfx(
-        mix: FloatArray,
-        startSample: Int,
-        gain: Float
-    ) {
-        val len = (0.24 * TARGET_SAMPLE_RATE).toInt()
-        val attackSamples = (0.005 * TARGET_SAMPLE_RATE).toInt().coerceAtLeast(1)
-        var phase = 0.0
-        for (k in 0 until len) {
-            val pos = startSample + k
-            if (pos !in mix.indices) break
-            val t = k.toDouble() / TARGET_SAMPLE_RATE.toDouble()
-            val frac = k.toDouble() / len.toDouble()
-            val freq = 115.0 * exp(-frac * 2.2) + 40.0
-            phase += (2.0 * PI * freq) / TARGET_SAMPLE_RATE.toDouble()
-            val attack = if (k < attackSamples) k.toFloat() / attackSamples else 1f
-            val decay = exp(-t * 14.0).toFloat()
-            mix[pos] += sin(phase).toFloat() * attack * decay * gain
         }
     }
 }

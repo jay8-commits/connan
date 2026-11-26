@@ -3,6 +3,7 @@ package com.example.data
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -12,12 +13,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 
 class VideoGalleryRepository(private val context: Context) {
 
     companion object {
         const val ALBUM_SUBDIR = "ToonForgeTagalog"
         val RELATIVE_MOVIES_PATH = "${Environment.DIRECTORY_MOVIES}/$ALBUM_SUBDIR"
+        val RELATIVE_PICTURES_PATH = "${Environment.DIRECTORY_PICTURES}/$ALBUM_SUBDIR"
+
+        fun coverFileNameForVideo(videoDisplayName: String): String {
+            val base = videoDisplayName
+                .removeSuffix(".mp4")
+                .removeSuffix(".MP4")
+                .ifBlank { "ToonForge_cover" }
+            return "${base}_cover.jpg"
+        }
+    }
+
+    fun getLocalCoverFile(videoDisplayName: String): File {
+        val dir = File(context.filesDir, "video_covers")
+        return File(dir, coverFileNameForVideo(videoDisplayName))
     }
 
     suspend fun querySavedVideos(): List<SavedVideoItem> = withContext(Dispatchers.IO) {
@@ -67,18 +83,61 @@ class VideoGalleryRepository(private val context: Context) {
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
                 val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                val name = cursor.getString(nameCol) ?: "toonforge_$id.mp4"
+                val localCover = getLocalCoverFile(name).takeIf { it.exists() && it.length() > 0L }
                 items.add(
                     SavedVideoItem(
                         uri = uri,
-                        displayName = cursor.getString(nameCol) ?: "toonforge_$id.mp4",
+                        displayName = name,
                         durationMs = cursor.getLong(durCol),
                         sizeBytes = cursor.getLong(sizeCol),
-                        dateAddedSec = cursor.getLong(dateCol)
+                        dateAddedSec = cursor.getLong(dateCol),
+                        coverFilePath = localCover?.absolutePath
                     )
                 )
             }
         }
         items
+    }
+
+    suspend fun saveCoverThumbnail(
+        coverBitmap: Bitmap,
+        videoDisplayName: String
+    ): File? = withContext(Dispatchers.IO) {
+        val coverName = coverFileNameForVideo(videoDisplayName)
+        val localFile = getLocalCoverFile(videoDisplayName)
+        runCatching {
+            localFile.parentFile?.mkdirs()
+            FileOutputStream(localFile).use { out ->
+                coverBitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+        }.onFailure { return@withContext null }
+
+        // Also publish _cover.jpg to Pictures/ToonForgeTagalog alongside Movies/ToonForgeTagalog
+        runCatching {
+            val resolver = context.contentResolver
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, coverName)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, RELATIVE_PICTURES_PATH)
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { out ->
+                        coverBitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    }
+                    resolver.update(
+                        uri,
+                        ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+                        null,
+                        null
+                    )
+                }
+            }
+        }
+        localFile
     }
 
     suspend fun saveMp4ToMediaStore(

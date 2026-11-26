@@ -93,11 +93,11 @@ enum class AnimationStyle(
         captionStyleLabel = "Kinetic spring pop + keyword glow"
     ),
     CROSS_SECTION(
-        displayName = "2D Cutaway & Engineering Diagram",
+        displayName = "2D Cutaway & System Explainer",
         badge = "CUTAWAY 2D",
-        subtitle = "Layered 2D cutaways, animated flow paths & dynamic vector art",
+        subtitle = "Split-level cross-sections, animated flow paths, live HUD & weather shifts",
         accentHex = 0xFF22D3EE,
-        backdropPromptSuffix = "clean 2D Kurzgesagt flat vector cross-section cutaway diagram illustration, bold layered depth, geometric precision, no text, no labels, no watermark",
+        backdropPromptSuffix = "clean 2D Kurzgesagt flat vector cross-section cutaway diagram illustration, bold layered depth, crisp 2.5px dark outlines, no text, no labels, no watermark",
         usesNetworkArt = true,
         captionStyleLabel = "Cyan-glow engineering pill"
     ),
@@ -128,7 +128,8 @@ enum class AnimationStyle(
             ATMOSPHERIC_2D_STORY,
             STYLIZED_25D_EXPLAINER,
             PAPER_DIORAMA,
-            KINETIC_TYPOGRAPHY_DIAGRAM
+            KINETIC_TYPOGRAPHY_DIAGRAM,
+            CROSS_SECTION
         )
     }
 }

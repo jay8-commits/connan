@@ -35,7 +35,8 @@ import kotlin.math.ceil
 data class ExportResult(
     val mediaStoreUri: Uri,
     val displayName: String,
-    val durationMs: Long
+    val durationMs: Long,
+    val coverFilePath: String? = null
 )
 
 class DeterministicVideoExporter(
@@ -69,10 +70,14 @@ class DeterministicVideoExporter(
         productionMode: ProductionMode = ProductionMode.FULL_AI_STORY,
         customSprites: Map<ActorRole, Bitmap> = emptyMap(),
         externalClipFrameSource: ExternalClipFrameSource? = null,
-        frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null
+        frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null,
+        captureCoverAtMs: Double = 1200.0
     ): ExportResult = withContext(Dispatchers.Default) {
         val totalFrames = ceil((totalDurationMs / 1000.0) * VIDEO_FPS).toInt().coerceAtLeast(30)
         val tempMp4File = File(tempCacheDir, "render_${UUID.randomUUID()}.mp4")
+        val targetCoverFrame = ((minOf(captureCoverAtMs, totalDurationMs * 0.5) / 1000.0) * VIDEO_FPS)
+            .toInt()
+            .coerceIn(0, totalFrames - 1)
 
         var videoEncoder: MediaCodec? = null
         var audioEncoder: MediaCodec? = null
@@ -82,6 +87,7 @@ class DeterministicVideoExporter(
         var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
         var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
         var frameBitmap: Bitmap? = null
+        var capturedCoverBitmap: Bitmap? = null
         var glProgram = 0
         var glTextureId = 0
 
@@ -297,6 +303,9 @@ class DeterministicVideoExporter(
                         }
                     )
                 }
+                if (frameIndex == targetCoverFrame && capturedCoverBitmap == null) {
+                    capturedCoverBitmap = frameBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                }
 
                 GLES20.glViewport(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT)
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -344,18 +353,23 @@ class DeterministicVideoExporter(
                 throw IllegalStateException("MediaMuxer failed to receive both video and audio output formats")
             }
 
-            // 7. Save final .mp4 into Android MediaStore (Movies/ToonForgeTagalog)
+            // 7. Save final .mp4 into Android MediaStore (Movies/ToonForgeTagalog) & _cover.jpg
             val savedUri = galleryRepository.saveMp4ToMediaStore(
                 tempMp4File = tempMp4File,
                 displayName = displayName,
                 durationMs = totalDurationMs.toLong()
             )
+            val savedCoverFile = capturedCoverBitmap?.let { bmp ->
+                galleryRepository.saveCoverThumbnail(bmp, displayName)
+            }
             ExportResult(
                 mediaStoreUri = savedUri,
                 displayName = displayName,
-                durationMs = totalDurationMs.toLong()
+                durationMs = totalDurationMs.toLong(),
+                coverFilePath = savedCoverFile?.absolutePath
             )
         } finally {
+            runCatching { capturedCoverBitmap?.recycle() }
             runCatching { frameBitmap?.recycle() }
             if (glTextureId != 0) {
                 runCatching { GLES20.glDeleteTextures(1, intArrayOf(glTextureId), 0) }

@@ -5,6 +5,7 @@ import com.example.art.EnvironmentRenderer
 import com.example.art.MagicByteValidator
 import com.example.art.SceneArtGenerator
 import com.example.data.BuiltInPrompts
+import com.example.data.VideoGalleryRepository
 import com.example.llm.AiHordeDirectorClient
 import com.example.llm.ChatPayloadCompatFlags
 import com.example.llm.DirectStoryboardParser
@@ -46,6 +47,7 @@ import com.example.model.EnvironmentTheme
 import com.example.model.FlowDirection
 import com.example.model.HandProp
 import com.example.model.HudWidget
+import com.example.model.LightingState
 import com.example.model.MetaphorVisual
 import com.example.model.MouthShape
 import com.example.model.PointerCallout
@@ -71,6 +73,8 @@ import com.example.render.PixelCutawayRenderer
 import com.example.render.ProceduralPuppetEngine
 import com.example.render.PuppetSpringSolver
 import com.example.tts.AudioPcmStitcher
+import com.example.tts.ProceduralSfxCue
+import com.example.tts.SfxTimelineMixer
 import com.example.tts.TagalogPhoneticNormalizer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -249,7 +253,7 @@ class ToonForgeCoreTest {
         val techComposed = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.TECH_EXPLAINER)
         assertTrue(techComposed.contains("IMPORTANT FOR Viral HUD & Motion Explainer"))
         val cutawayComposed = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.CROSS_SECTION)
-        assertTrue(cutawayComposed.contains("IMPORTANT FOR 2D Cutaway & Engineering Diagram"))
+        assertTrue(cutawayComposed.contains("IMPORTANT FOR 2D Cutaway & System Explainer"))
         assertTrue(cutawayComposed.contains("CLOSE_UP_FACE"))
     }
 
@@ -2075,17 +2079,20 @@ class ToonForgeCoreTest {
 
     @Test
     fun `motionHtmlEngineFourViralPresetsIdentityLockAndViralCaptionsWork`() {
-        // 1. Verify 4 selectable studio viral presets with ATMOSPHERIC_2D_STORY first
-        assertEquals(4, AnimationStyle.STUDIO_VIRAL_PRESETS.size)
+        // 1. Verify 5 selectable studio viral presets with ATMOSPHERIC_2D_STORY first and CROSS_SECTION 5th
+        assertEquals(5, AnimationStyle.STUDIO_VIRAL_PRESETS.size)
         assertEquals(AnimationStyle.ATMOSPHERIC_2D_STORY, AnimationStyle.STUDIO_VIRAL_PRESETS[0])
         assertEquals(AnimationStyle.STYLIZED_25D_EXPLAINER, AnimationStyle.STUDIO_VIRAL_PRESETS[1])
         assertEquals(AnimationStyle.PAPER_DIORAMA, AnimationStyle.STUDIO_VIRAL_PRESETS[2])
         assertEquals(AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM, AnimationStyle.STUDIO_VIRAL_PRESETS[3])
+        assertEquals(AnimationStyle.CROSS_SECTION, AnimationStyle.STUDIO_VIRAL_PRESETS[4])
+        assertEquals("2D Cutaway & System Explainer", AnimationStyle.CROSS_SECTION.displayName)
 
         assertEquals(MotionPresetEngine.ATMOSPHERIC_2D, MotionHtmlDirector.mapPresetEngine(AnimationStyle.ATMOSPHERIC_2D_STORY))
         assertEquals(MotionPresetEngine.STYLIZED_25D, MotionHtmlDirector.mapPresetEngine(AnimationStyle.STYLIZED_25D_EXPLAINER))
         assertEquals(MotionPresetEngine.PAPER_DIORAMA, MotionHtmlDirector.mapPresetEngine(AnimationStyle.PAPER_DIORAMA))
         assertEquals(MotionPresetEngine.KINETIC_DIAGRAM, MotionHtmlDirector.mapPresetEngine(AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM))
+        assertEquals(MotionPresetEngine.CUTAWAY_SYSTEM, MotionHtmlDirector.mapPresetEngine(AnimationStyle.CROSS_SECTION))
 
         // 2. Default settings keep AI background art OFF; when enabled, prompt enforces NO people/characters
         assertFalse(StudioSettings().enableAiBackgroundArt)
@@ -2178,6 +2185,135 @@ class ToonForgeCoreTest {
         assertTrue(html.contains("#FFD60A"))
         assertTrue(html.contains("#FF453A"))
         assertTrue(html.contains("#0B0E14"))
+        assertTrue(html.contains("cinema-grain-rect"))
+        assertTrue(html.contains("opacity=\"0.035\""))
+        assertTrue(html.contains("rim-light-grad"))
+        assertTrue(html.contains("editorial-hook-overlay"))
+        assertTrue(html.contains("subBeatZoom"))
         assertFalse(html.contains("UBOS </script>"))
+    }
+
+    @Test
+    fun `cutawayPresetTemplateNoDefaultHostSfxMixerAndViralLoopWork`() {
+        // 1. No default standing host character unless explicitly requested or story mentions person/animal
+        val systemScene = SceneScript(
+            sceneId = 1,
+            tagalogNarration = "Paano gumagana ang solar panel at water pump sa bahay?",
+            backgroundPrompt = "solar roof and underground pipes cutaway",
+            cameraMotion = CameraMotion.ZOOM_IN,
+            actorRole = ActorRole.NARRATOR,
+            actorAction = ActorAction.TALK_BOUNCE,
+            worldFx = WorldFx.NONE,
+            hudWidget = HudWidget.PROGRESS_GAUGE,
+            hudLabel = "SOLAR OUTPUT",
+            hudUnit = "W",
+            hudFromValue = 120,
+            hudToValue = 4800,
+            statusPill = StatusPill.FIX,
+            calloutBanner = "✓ FULL POWER",
+            lightingState = LightingState.RAIN_STORM,
+            sfxCues = listOf("DING_SUCCESS", "WHOOSH_CUT")
+        )
+        assertFalse(MotionHtmlDirector.shouldRenderCharacter(systemScene, MotionPresetEngine.CUTAWAY_SYSTEM))
+        assertFalse(MotionHtmlDirector.shouldRenderCharacter(systemScene, MotionPresetEngine.ATMOSPHERIC_2D))
+        assertTrue(MotionHtmlDirector.shouldRenderCharacter(systemScene.copy(hasCharacter = true), MotionPresetEngine.CUTAWAY_SYSTEM))
+        assertTrue(
+            MotionHtmlDirector.shouldRenderCharacter(
+                systemScene.copy(tagalogNarration = "May matandang lola na nag-aayos ng tubo sa hardin."),
+                MotionPresetEngine.ATMOSPHERIC_2D
+            )
+        )
+
+        // 2. CutawayExplainerTemplate.html builds complete 1080x1920 cutaway HTML with path-flow & cinema post-FX
+        val cutawayTimeline = listOf(
+            TimelineScene(
+                scene = systemScene,
+                startMs = 0.0,
+                endMs = 3600.0,
+                wordTimings = emptyList()
+            )
+        )
+        val cutawayHtml = MotionHtmlDirector.buildHtmlDocument(
+            scenes = cutawayTimeline,
+            style = AnimationStyle.CROSS_SECTION,
+            totalDurationMs = 3600.0
+        )
+        assertTrue(cutawayHtml.contains("window.seekToTime = function(seconds)"))
+        assertTrue(cutawayHtml.contains("tank-left-clip"))
+        assertTrue(cutawayHtml.contains("pointAlongSegments"))
+        assertTrue(cutawayHtml.contains("cinema-grain-rect"))
+        assertTrue(cutawayHtml.contains("opacity=\"0.035\""))
+        assertTrue(cutawayHtml.contains("RAIN_STORM"))
+        assertTrue(cutawayHtml.contains("SOLAR OUTPUT"))
+        assertTrue(cutawayHtml.contains("4800"))
+
+        // 3. JsonSanitizer parses hud_unit, hud_value_from, hud_value_to, has_character, lighting_state, and sfx
+        val jsonPayload = """
+            {"scenes":[{
+              "scene_id": 1,
+              "tagalog_narration": "Tingnan kung paano umiikot ang kuryente at tubig sa ilalim ng lupa.",
+              "visual_description": "Split-level vector cutaway showing rooftop solar panels feeding battery bank and underground water tank circulation pipes with bubbles.",
+              "background_prompt": "clean rooftop solar and soil cross-section stage, empty foreground, no humans",
+              "camera_motion": "ZOOM_IN",
+              "actor_role": "NARRATOR",
+              "actor_action": "POINT_STICK",
+              "world_fx": "NONE",
+              "hud_widget": "PROGRESS_GAUGE",
+              "hud_label": "TANK FILTER",
+              "hud_unit": "PPM",
+              "hud_value_from": 950,
+              "hud_value_to": 42,
+              "has_character": false,
+              "lighting_state": "NIGHT",
+              "sfx": ["POP_CALLOUT", "DING_SUCCESS"]
+            }]}
+        """.trimIndent()
+        val parsedScenes = JsonSanitizer.parseAndValidateScenes(jsonPayload)
+        assertEquals(1, parsedScenes.size)
+        val parsed = parsedScenes[0]
+        assertEquals("PPM", parsed.hudUnit)
+        assertEquals(950, parsed.hudFromValue)
+        assertEquals(42, parsed.hudToValue)
+        assertEquals(false, parsed.hasCharacter)
+        assertEquals(LightingState.NIGHT, parsed.lightingState)
+        assertEquals(listOf("POP_CALLOUT", "DING_SUCCESS"), parsed.sfxCues)
+
+        // 4. Procedural SFX synthesizer & timeline scheduler
+        for (cue in ProceduralSfxCue.entries) {
+            val samples = SfxTimelineMixer.synthesizeCueSamples(cue)
+            assertTrue("Expected non-empty PCM for $cue", samples.isNotEmpty())
+            assertTrue("Expected non-silent signal for $cue", samples.any { abs(it) > 0.01f })
+            assertTrue("Expected bounded samples for $cue", samples.all { it in -1.0f..1.0f })
+        }
+
+        val sfxTimeline = SfxTimelineMixer.buildSfxTimeline(
+            scenes = listOf(
+                systemScene,
+                systemScene.copy(sceneId = 2, statusPill = StatusPill.PROBLEM, calloutBanner = "✕ LOW PRESSURE")
+            ),
+            sceneStartMs = listOf(0.0, 3000.0),
+            sceneEndMs = listOf(3000.0, 6000.0),
+            style = AnimationStyle.CROSS_SECTION
+        )
+        assertTrue(sfxTimeline.any { it.cue == ProceduralSfxCue.SUB_BASS_IMPACT && abs(it.timeSec - 0.20) < 0.01 })
+        assertTrue(sfxTimeline.any { it.cue == ProceduralSfxCue.WHOOSH_CUT })
+        assertTrue(sfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT })
+        assertTrue(sfxTimeline.any { it.cue == ProceduralSfxCue.DING_SUCCESS })
+        assertTrue(sfxTimeline.any { it.cue == ProceduralSfxCue.BUZZ_ERROR })
+
+        val mixBuf = FloatArray(SfxTimelineMixer.SAMPLE_RATE * 4)
+        SfxTimelineMixer.mixSfxEventsIntoBuffer(mixBuf, sfxTimeline)
+        assertTrue(mixBuf.any { abs(it) > 0.01f })
+
+        // 5. Viral Loop Blueprint prompt rules + _cover.jpg naming helper
+        val prompt = BuiltInPrompts.composeSystemPrompt(
+            BuiltInPrompts.VIRAL_PINOY_EXPLAINER.content,
+            30,
+            AnimationStyle.CROSS_SECTION
+        )
+        assertTrue(prompt.contains("VIRAL LOOP BLUEPRINT"))
+        assertTrue(prompt.contains("NO DEFAULT HOST CHARACTER"))
+        assertTrue(prompt.contains("\"hud_unit\""))
+        assertEquals("ToonForge_123_cover.jpg", VideoGalleryRepository.coverFileNameForVideo("ToonForge_123.mp4"))
     }
 }

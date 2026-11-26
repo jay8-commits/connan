@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1080, height=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>ToonForge 2D Cutaway & System Explainer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #070B12;
+    font-family: 'Montserrat', 'Roboto', 'Noto Sans', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg#stage {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background: #070B12;
+  }
+  .cap-text {
+    font-family: 'Montserrat', 'Roboto Black', 'Arial Black', sans-serif;
+    font-weight: 900;
+    font-size: 86px;
+    letter-spacing: 1px;
+    paint-order: stroke fill;
+    stroke: #0B0E14;
+    stroke-width: 19px;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    filter: drop-shadow(0px 9px 12px rgba(0, 0, 0, 0.85));
+  }
+  .title-card-txt {
+    font-family: 'Montserrat', 'Roboto', Arial, sans-serif;
+    font-weight: 900;
+    letter-spacing: 1.4px;
+  }
+  .hud-num {
+    font-family: 'Roboto Mono', 'Montserrat', monospace;
+    font-weight: 900;
+  }
+  .diagram-txt {
+    font-family: 'Roboto', Arial, sans-serif;
+    font-weight: 800;
+  }
+  .cut-outline {
+    stroke: #141821;
+    stroke-width: 2.5px;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .card-shadow {
+    filter: drop-shadow(0px 10px 16px rgba(4, 8, 18, 0.55));
+  }
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Sky Gradients for SUNNY / NIGHT / RAIN_STORM -->
+    <linearGradient id="sky-sunny" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="56%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#BAE6FD" />
+    </linearGradient>
+    <linearGradient id="sky-night" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#040814" />
+      <stop offset="55%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E293B" />
+    </linearGradient>
+    <linearGradient id="sky-storm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0B1320" />
+      <stop offset="52%" stop-color="#1E293B" />
+      <stop offset="100%" stop-color="#334155" />
+    </linearGradient>
+    <linearGradient id="soil-strata" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5C3A21" />
+      <stop offset="28%" stop-color="#432818" />
+      <stop offset="100%" stop-color="#24150E" />
+    </linearGradient>
+    <linearGradient id="water-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.82" />
+      <stop offset="100%" stop-color="#0284C7" stop-opacity="0.94" />
+    </linearGradient>
+    <linearGradient id="solar-glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1D4ED8" />
+      <stop offset="50%" stop-color="#1E3A8A" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+    <linearGradient id="rim-light-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.16" />
+      <stop offset="42%" stop-color="#38BDF8" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="vignette-grad" cx="50%" cy="46%" r="68%">
+      <stop offset="52%" stop-color="#000000" stop-opacity="0" />
+      <stop offset="100%" stop-color="#03050A" stop-opacity="0.62" />
+    </radialGradient>
+    <filter id="cinema-grain" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="2" stitchTiles="stitch" result="noise" />
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.9 0" in="noise" result="mono" />
+    </filter>
+    <filter id="glow-cyan" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <clipPath id="stage-clip">
+      <rect x="0" y="0" width="1080" height="1920" />
+    </clipPath>
+    <clipPath id="tank-left-clip">
+      <rect x="118" y="998" width="334" height="292" rx="18" />
+    </clipPath>
+    <clipPath id="tank-right-clip">
+      <rect x="618" y="998" width="344" height="292" rx="18" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#stage-clip)">
+    <g id="camera-root">
+      <image id="ai-backdrop-img" x="-80" y="-120" width="1240" height="2160" preserveAspectRatio="xMidYMid slice" opacity="0" />
+      <g id="sky-layer"></g>
+      <g id="weather-layer"></g>
+      <g id="surface-layer"></g>
+      <g id="underground-layer"></g>
+      <g id="flow-engine-layer"></g>
+      <g id="pointer-layer"></g>
+      <g id="cast-layer"></g>
+    </g>
+
+    <!-- HUD Telemetry, Ripped-Paper Banners & Editorial Hook Overlay -->
+    <g id="kinetic-hud-layer"></g>
+    <g id="editorial-hook-layer"></g>
+
+    <!-- Cinema Post-Processing: Directional Rim Light + Soft Radial Vignette + 0.035 Film Grain -->
+    <rect x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
+    <rect id="vignette-rect" x="0" y="0" width="1080" height="1920" fill="url(#vignette-grad)" pointer-events="none" />
+    <rect id="cinema-grain-rect" x="0" y="0" width="1080" height="1920" fill="#FFFFFF" filter="url(#cinema-grain)" opacity="0.035" pointer-events="none" />
+
+    <!-- Safe Zone Captions at y = 1420 -->
+    <g id="caption-layer" transform="translate(540, 1420)"></g>
+  </g>
+</svg>
+
+<!--STORYBOARD_DATA-->
+
+<script>
+(function() {
+  "use strict";
+  const NS = "http://www.w3.org/2000/svg";
+  const dataEl = document.getElementById("storyboard-data");
+  const DATA = dataEl ? JSON.parse(dataEl.textContent) : { scenes: [], totalDurationSec: 5 };
+  const SCENES = DATA.scenes || [];
+
+  const elCamera = document.getElementById("camera-root");
+  const elBackdropImg = document.getElementById("ai-backdrop-img");
+  const elSky = document.getElementById("sky-layer");
+  const elWeather = document.getElementById("weather-layer");
+  const elSurface = document.getElementById("surface-layer");
+  const elUnderground = document.getElementById("underground-layer");
+  const elFlow = document.getElementById("flow-engine-layer");
+  const elPointers = document.getElementById("pointer-layer");
+  const elCast = document.getElementById("cast-layer");
+  const elHud = document.getElementById("kinetic-hud-layer");
+  const elHook = document.getElementById("editorial-hook-layer");
+  const elCaption = document.getElementById("caption-layer");
+
+  let lastSceneIdx = -1;
+
+  function svgEl(tag, attrs, parent) {
+    const node = document.createElementNS(NS, tag);
+    if (attrs) {
+      for (const k in attrs) node.setAttribute(k, String(attrs[k]));
+    }
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  function clearNode(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function clamp(v, lo, hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  // Spring overshoot curve matching cubic-bezier(0.34, 1.56, 0.64, 1)
+  function springOvershoot(t) {
+    const x = clamp(t, 0, 1);
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
+  function easeOutExpo(t) {
+    const x = clamp(t, 0, 1);
+    return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+  }
+
+  function resolveLighting(scene) {
+    const raw = (scene.lightingState || "AUTO").toUpperCase();
+    if (raw === "SUNNY" || raw === "NIGHT" || raw === "RAIN_STORM") return raw;
+    if (scene.theme === "COZY_BEDROOM_MIDNIGHT" || scene.theme === "DRAMATIC_SUNSET_CITY") return "NIGHT";
+    if (scene.statusPill === "PROBLEM" && (scene.sceneId % 2 === 0)) return "RAIN_STORM";
+    return "SUNNY";
+  }
+
+  function renderCutawayStage(scene) {
+    clearNode(elSky);
+    clearNode(elSurface);
+    clearNode(elUnderground);
+    clearNode(elCast);
+
+    const lighting = resolveLighting(scene);
+    const skyFill = lighting === "NIGHT" ? "url(#sky-night)" : (lighting === "RAIN_STORM" ? "url(#sky-storm)" : "url(#sky-sunny)");
+
+    if (scene.backdropUri) {
+      elBackdropImg.setAttribute("href", scene.backdropUri);
+      elBackdropImg.setAttribute("opacity", "0.24");
+    } else {
+      elBackdropImg.setAttribute("opacity", "0");
+    }
+
+    // 1. Sky backdrop (y: -120..950)
+    svgEl("rect", { x: -120, y: -120, width: 1320, height: 1080, fill: skyFill }, elSky);
+
+    // Horizon city / trees silhouette above soil
+    svgEl("path", {
+      d: "M-80,930 L-80,820 L40,820 L40,760 L120,760 L120,835 L260,835 L260,790 L350,790 L350,840 L780,840 L780,770 L890,770 L890,825 L1010,825 L1010,750 L1160,750 L1160,930 Z",
+      fill: lighting === "SUNNY" ? "#0369A1" : "#0F172A",
+      opacity: "0.38"
+    }, elSky);
+
+    // 2. Surface Rooftop House & Solar / System Module (y: 430..940) with 2.5px #141821 outlines
+    // Main Architectural Cross-Section Building
+    svgEl("rect", { x: 140, y: 590, width: 520, height: 345, rx: 10, fill: "#E2E8F0", class: "cut-outline" }, elSurface);
+    // Cel-shadow right side of building
+    svgEl("rect", { x: 560, y: 590, width: 100, height: 345, fill: "#CBD5E1", opacity: "0.7" }, elSurface);
+    // Pitched Roof + Solar Panel Array
+    svgEl("polygon", { points: "100,595 400,440 700,595", fill: "#B91C1C", class: "cut-outline" }, elSurface);
+    // Rooftop Solar Panel Grid
+    const solarG = svgEl("g", { transform: "translate(235, 480) rotate(-25)" }, elSurface);
+    svgEl("rect", { x: 0, y: 0, width: 210, height: 84, rx: 8, fill: "url(#solar-glass)", stroke: "#141821", "stroke-width": "2.5" }, solarG);
+    for (let sx = 42; sx < 210; sx += 42) {
+      svgEl("line", { x1: sx, y1: 0, x2: sx, y2: 84, stroke: "#38BDF8", "stroke-width": "1.8", opacity: "0.65" }, solarG);
+    }
+    svgEl("line", { x1: 0, y1: 42, x2: 210, y2: 42, stroke: "#38BDF8", "stroke-width": "1.8", opacity: "0.65" }, solarG);
+
+    // Interior Cutaway Room inside building (Breaker Box / Inverter / Battery Monitor)
+    svgEl("rect", { x: 185, y: 635, width: 430, height: 265, rx: 12, fill: "#1E293B", class: "cut-outline" }, elSurface);
+    svgEl("rect", { x: 225, y: 675, width: 140, height: 175, rx: 10, fill: "#334155", class: "cut-outline" }, elSurface);
+    svgEl("rect", { x: 245, y: 698, width: 100, height: 52, rx: 6, fill: "#0F172A", stroke: "#22D3EE", "stroke-width": "2.5" }, elSurface);
+    // Smart Inverter Box on right
+    svgEl("rect", { x: 420, y: 685, width: 160, height: 155, rx: 12, fill: "#0F172A", class: "cut-outline" }, elSurface);
+    svgEl("circle", { cx: 500, cy: 745, r: 34, fill: "#164E63", stroke: "#22D3EE", "stroke-width": "2.5" }, elSurface);
+
+    // Outdoor Pump / Valve Tower on right side of surface (x: 730..950)
+    svgEl("rect", { x: 755, y: 675, width: 175, height: 260, rx: 16, fill: "#475569", class: "cut-outline" }, elSurface);
+    svgEl("rect", { x: 785, y: 710, width: 115, height: 115, rx: 10, fill: "#0F172A", class: "cut-outline" }, elSurface);
+    // Mechanical Valve Wheel
+    svgEl("circle", { cx: 842, cy: 768, r: 40, fill: "#F59E0B", class: "cut-outline" }, elSurface);
+
+    // 3. Underground Soil Cross-Section & Transparent Cutaway Chambers (y: 935..1400)
+    svgEl("rect", { x: -120, y: 935, width: 1320, height: 52, fill: "#16A34A", class: "cut-outline" }, elUnderground);
+    svgEl("rect", { x: -120, y: 965, width: 1320, height: 470, fill: "url(#soil-strata)", class: "cut-outline" }, elUnderground);
+
+    // Soil pebbles & strata texture
+    for (let p = 0; p < 14; p++) {
+      svgEl("ellipse", {
+        cx: 75 + (p * 74) % 940,
+        cy: 1325 + (p % 3) * 26,
+        rx: 14 + (p % 4) * 5,
+        ry: 8 + (p % 2) * 4,
+        fill: "#3E2723",
+        stroke: "#141821",
+        "stroke-width": "2"
+      }, elUnderground);
+    }
+
+    // Left Underground Cutaway Chamber: Transparent Tank with <clipPath id="tank-left-clip">
+    svgEl("rect", { x: 110, y: 990, width: 350, height: 308, rx: 22, fill: "#0B1220", class: "cut-outline" }, elUnderground);
+    const leftWaterGrp = svgEl("g", { "clip-path": "url(#tank-left-clip)" }, elUnderground);
+    svgEl("rect", { x: 118, y: 1065, width: 334, height: 230, fill: "url(#water-grad)" }, leftWaterGrp);
+    svgEl("path", { d: "M118,1065 Q200,1050 285,1065 T452,1065 L452,1085 L118,1085 Z", fill: "#7DD3FC", opacity: "0.7" }, leftWaterGrp);
+
+    // Right Underground Cutaway Chamber: Transparent Filtration / Bio-Tank with <clipPath id="tank-right-clip">
+    svgEl("rect", { x: 610, y: 990, width: 360, height: 308, rx: 22, fill: "#0B1220", class: "cut-outline" }, elUnderground);
+    const rightWaterGrp = svgEl("g", { "clip-path": "url(#tank-right-clip)" }, elUnderground);
+    svgEl("rect", { x: 618, y: 1052, width: 344, height: 245, fill: "url(#water-grad)" }, rightWaterGrp);
+    // Filter gravel bed at bottom of right chamber
+    svgEl("rect", { x: 618, y: 1236, width: 344, height: 60, fill: "#64748B", stroke: "#141821", "stroke-width": "2" }, rightWaterGrp);
+
+    // Connecting Underground & Vertical Pipes (crisp 2.5px dark outline)
+    svgEl("path", {
+      d: "M452,1155 L618,1155",
+      stroke: "#141821", "stroke-width": "34", "stroke-linecap": "round", fill: "none"
+    }, elUnderground);
+    svgEl("path", {
+      d: "M452,1155 L618,1155",
+      stroke: "#0284C7", "stroke-width": "26", "stroke-linecap": "round", fill: "none"
+    }, elUnderground);
+    // Vertical Riser Pipe from Right Chamber up to Pump Tower
+    svgEl("path", {
+      d: "M842,995 L842,935",
+      stroke: "#141821", "stroke-width": "30", fill: "none"
+    }, elUnderground);
+    svgEl("path", {
+      d: "M842,995 L842,935",
+      stroke: "#38BDF8", "stroke-width": "22", fill: "none"
+    }, elUnderground);
+
+    // Glass reflection highlight over both cutaway chambers
+    svgEl("path", { d: "M138,1016 L138,1272", stroke: "#FFFFFF", "stroke-width": "6", "stroke-linecap": "round", opacity: "0.22" }, elUnderground);
+    svgEl("path", { d: "M638,1016 L638,1272", stroke: "#FFFFFF", "stroke-width": "6", "stroke-linecap": "round", opacity: "0.22" }, elUnderground);
+
+    // Power Wire Path (Rooftop Solar -> Inverter -> Underground Pump)
+    svgEl("path", {
+      d: "M340,520 L500,685 L500,840 L760,840",
+      stroke: "#141821", "stroke-width": "12", "stroke-linejoin": "round", fill: "none"
+    }, elSurface);
+    svgEl("path", {
+      d: "M340,520 L500,685 L500,840 L760,840",
+      stroke: "#FACC15", "stroke-width": "6", "stroke-linejoin": "round", fill: "none"
+    }, elSurface);
+
+    // Bottom stage ground foundation (y: 1380..1920)
+    svgEl("rect", { x: -120, y: 1380, width: 1320, height: 600, fill: "#090D16" }, elUnderground);
+  }
+
+  function renderWeather(scene, tSec) {
+    clearNode(elWeather);
+    const lighting = resolveLighting(scene);
+
+    if (lighting === "SUNNY") {
+      // Glowing Sun with deterministic rotating rays
+      const sunG = svgEl("g", { transform: "translate(880, 290)" }, elWeather);
+      svgEl("circle", { cx: 0, cy: 0, r: 68, fill: "#FEF08A", opacity: "0.28" }, sunG);
+      svgEl("circle", { cx: 0, cy: 0, r: 44, fill: "#FACC15", class: "cut-outline" }, sunG);
+      for (let i = 0; i < 8; i++) {
+        const ang = (i * 45 + tSec * 18) * Math.PI / 180;
+        svgEl("line", {
+          x1: Math.cos(ang) * 56, y1: Math.sin(ang) * 56,
+          x2: Math.cos(ang) * 78, y2: Math.sin(ang) * 78,
+          stroke: "#FDE047", "stroke-width": "5", "stroke-linecap": "round"
+        }, sunG);
+      }
+      // Drifting crisp cloud
+      const cx = ((tSec * 24) % 1280) - 100;
+      svgEl("path", {
+        d: "M" + cx + ",310 Q" + (cx + 35) + ",265 " + (cx + 85) + ",285 Q" + (cx + 125) + ",255 " + (cx + 165) + ",290 Q" + (cx + 205) + ",295 " + (cx + 195) + ",330 L" + cx + ",330 Z",
+        fill: "#FFFFFF", opacity: "0.86", class: "cut-outline"
+      }, elWeather);
+    } else if (lighting === "NIGHT") {
+      // Crescent Moon & Twinkling Stars
+      for (let s = 0; s < 14; s++) {
+        const sx = 90 + (s * 83) % 920;
+        const sy = 160 + (s * 47) % 240;
+        const alpha = 0.4 + 0.5 * Math.abs(Math.sin(tSec * 2.1 + s));
+        svgEl("circle", { cx: sx, cy: sy, r: 2.5 + (s % 2), fill: "#FEF9C3", opacity: alpha.toFixed(2) }, elWeather);
+      }
+      svgEl("circle", { cx: 885, cy: 280, r: 42, fill: "#FEF08A", class: "cut-outline" }, elWeather);
+      svgEl("circle", { cx: 904, cy: 268, r: 36, fill: "#0F172A" }, elWeather);
+    } else if (lighting === "RAIN_STORM") {
+      // Storm Clouds + Deterministic Diagonal Rain Streaks
+      svgEl("path", {
+        d: "M120,305 Q175,245 255,270 Q320,230 390,275 Q445,280 430,325 L110,325 Z",
+        fill: "#475569", class: "cut-outline"
+      }, elWeather);
+      svgEl("path", {
+        d: "M640,295 Q700,235 785,260 Q860,220 925,270 Q975,280 960,320 L630,320 Z",
+        fill: "#334155", class: "cut-outline"
+      }, elWeather);
+      for (let r = 0; r < 18; r++) {
+        const frac = (tSec * 1.9 + r * 0.17) % 1;
+        const rx = 110 + (r * 54) % 880 - frac * 65;
+        const ry = 330 + frac * 590;
+        svgEl("line", {
+          x1: rx, y1: ry, x2: rx - 14, y2: ry + 26,
+          stroke: "#7DD3FC", "stroke-width": "3", "stroke-linecap": "round", opacity: "0.62"
+        }, elWeather);
+      }
+    }
+  }
+
+  function pointAlongSegments(pts, frac) {
+    const segCount = pts.length - 1;
+    const scaled = clamp(frac, 0, 0.9999) * segCount;
+    const idx = Math.floor(scaled);
+    const localT = scaled - idx;
+    return {
+      x: lerp(pts[idx][0], pts[idx + 1][0], localT),
+      y: lerp(pts[idx][1], pts[idx + 1][1], localT)
+    };
+  }
+
+  function renderAnimatedPathFlowEngine(scene, sceneElapsed, tSec) {
+    clearNode(elFlow);
+    clearNode(elPointers);
+
+    // 1. Glowing Electricity Dots along Solar -> Inverter -> Pump Wire
+    const wirePts = [[340, 520], [500, 685], [500, 840], [760, 840]];
+    for (let e = 0; e < 5; e++) {
+      const f = (tSec * 0.55 + e * 0.20) % 1;
+      const pt = pointAlongSegments(wirePts, f);
+      svgEl("circle", {
+        cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 8.5,
+        fill: "#FEF08A", stroke: "#F59E0B", "stroke-width": "2.5",
+        filter: "url(#glow-cyan)"
+      }, elFlow);
+    }
+
+    // 2. Water Stream Flow Dots inside Underground Pipe (Left Tank -> Right Tank -> Riser)
+    const pipePts = [[452, 1155], [618, 1155], [842, 1155], [842, 935]];
+    const dir = (scene.flowDirection === "DOWN") ? -1 : 1;
+    for (let w = 0; w < 6; w++) {
+      let f = (tSec * 0.42 + w * 0.166) % 1;
+      if (dir < 0) f = 1 - f;
+      const pt = pointAlongSegments(pipePts, f);
+      svgEl("circle", {
+        cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 6.5,
+        fill: "#E0F2FE", opacity: "0.90"
+      }, elFlow);
+    }
+
+    // 3. Rising Air Bubbles inside Left & Right Cutaway Chambers
+    for (let b = 0; b < 8; b++) {
+      const tankLeft = b < 4;
+      const bf = (tSec * (0.35 + (b % 3) * 0.08) + b * 0.23) % 1;
+      const bx = (tankLeft ? 155 : 665) + ((b % 4) * 68) + Math.sin(tSec * 3.2 + b) * 7;
+      const by = lerp(1268, 1072, bf);
+      svgEl("circle", {
+        cx: bx.toFixed(1), cy: by.toFixed(1), r: 5 + (b % 3) * 2,
+        fill: "#E0F2FE", "fill-opacity": "0.68", stroke: "#FFFFFF", "stroke-width": "1.5"
+      }, elFlow);
+    }
+
+    // 4. Swimming Fish inside Left Transparent Tank
+    for (let fIdx = 0; fIdx < 2; fIdx++) {
+      const swimPhase = (tSec * (0.28 + fIdx * 0.07) + fIdx * 0.5) % 2;
+      const goingRight = swimPhase < 1;
+      const u = goingRight ? swimPhase : 2 - swimPhase;
+      const fx = lerp(165, 385, u);
+      const fy = 1135 + fIdx * 65 + Math.sin(tSec * 3.5 + fIdx * 2) * 10;
+      const wag = Math.sin(tSec * 12 + fIdx) * 4;
+      const fishG = svgEl("g", {
+        transform: "translate(" + fx.toFixed(1) + "," + fy.toFixed(1) + ") scale(" + (goingRight ? 1 : -1) + ",1)"
+      }, elFlow);
+      svgEl("polygon", {
+        points: "-20,0 -34," + (-10 + wag) + " -34," + (10 + wag),
+        fill: fIdx === 0 ? "#FB923C" : "#FACC15", class: "cut-outline"
+      }, fishG);
+      svgEl("ellipse", {
+        cx: 0, cy: 0, rx: 22, ry: 12,
+        fill: fIdx === 0 ? "#F97316" : "#FDE047", class: "cut-outline"
+      }, fishG);
+      svgEl("circle", { cx: 10, cy: -3, r: 3, fill: "#141821" }, fishG);
+    }
+
+    // 5. Rotating Mechanical Valve Spokes at (842, 768)
+    const valveDeg = (tSec * 72) % 360;
+    const vg = svgEl("g", { transform: "translate(842, 768) rotate(" + valveDeg.toFixed(1) + ")" }, elFlow);
+    svgEl("line", { x1: -28, y1: 0, x2: 28, y2: 0, stroke: "#141821", "stroke-width": "6" }, vg);
+    svgEl("line", { x1: 0, y1: -28, x2: 0, y2: 28, stroke: "#141821", "stroke-width": "6" }, vg);
+
+    // 6. Sub-beat 2.5s Pointer Callout Pins
+    const subBeatLocal = (sceneElapsed % 2.5);
+    const pulse = subBeatLocal < 0.45 ? 1 + 0.08 * Math.sin((subBeatLocal / 0.45) * Math.PI) : 1;
+    const callouts = (scene.pointerCallouts && scene.pointerCallouts.length > 0)
+      ? scene.pointerCallouts
+      : [{ label: scene.hudLabel || "FLOW SYSTEM", x: 135, y: 185 }];
+    callouts.forEach(function(pc, idx) {
+      const px = clamp((pc.x / 270) * 1080, 180, 900);
+      const py = clamp((pc.y / 480) * 1920, 420, 1280);
+      const pg = svgEl("g", {
+        transform: "translate(" + px.toFixed(0) + "," + py.toFixed(0) + ") scale(" + pulse.toFixed(3) + ")"
+      }, elPointers);
+      svgEl("circle", { cx: 0, cy: 0, r: 14, fill: "#22D3EE", stroke: "#141821", "stroke-width": "2.5" }, pg);
+      svgEl("line", { x1: 0, y1: -14, x2: 0, y2: -54, stroke: "#22D3EE", "stroke-width": "3.5" }, pg);
+      const bw = Math.min(340, Math.max(180, pc.label.length * 16 + 44));
+      svgEl("rect", {
+        x: -bw / 2, y: -96, width: bw, height: 42, rx: 10,
+        fill: "#0B1120", stroke: "#22D3EE", "stroke-width": "2.5"
+      }, pg);
+      const pt = svgEl("text", {
+        x: 0, y: -69, "text-anchor": "middle", fill: "#F8FAFC", "font-size": "22", class: "diagram-txt"
+      }, pg);
+      pt.textContent = pc.label.toUpperCase();
+    });
+  }
+
+  function renderHudAndEditorialHook(scene, sceneElapsed, sceneDur, tSec) {
+    clearNode(elHud);
+    clearNode(elHook);
+
+    // 1. Ripped-paper / Tech Top Status Banner with ✓ / ✕ Pills
+    const bannerSpring = springOvershoot(clamp(sceneElapsed / 0.45, 0, 1));
+    const pill = scene.statusPill || "NONE";
+    const bannerText = (scene.calloutBanner || scene.titleCard || "").toUpperCase();
+    if (pill !== "NONE" || bannerText) {
+      const isProblem = pill === "PROBLEM";
+      const isGood = pill === "GOAL" || pill === "FIX";
+      const pillGlyph = isProblem ? "✕" : (isGood ? "✓" : "★");
+      const accent = isProblem ? "#FF453A" : (isGood ? "#2DD4BF" : "#FFD60A");
+      const displayStr = (pill !== "NONE" ? pillGlyph + " " + pill + (bannerText ? " • " : "") : "") + bannerText;
+      const bw = Math.min(930, Math.max(400, displayStr.length * 23 + 96));
+
+      const bg = svgEl("g", {
+        transform: "translate(540, 165) scale(" + bannerSpring.toFixed(4) + ")",
+        opacity: clamp(sceneElapsed / 0.20, 0, 1),
+        class: "card-shadow"
+      }, elHud);
+      // Ripped-paper style notched banner silhouette
+      const hw = bw / 2;
+      svgEl("polygon", {
+        points: (-hw) + ",-40 " + hw + ",-40 " + (hw - 12) + ",-12 " + hw + ",14 " + (hw - 8) + ",40 " + (-hw) + ",40 " + (-hw + 10) + ",8 " + (-hw) + ",-16",
+        fill: "#0B1120", stroke: accent, "stroke-width": "3.5"
+      }, bg);
+      const txt = svgEl("text", {
+        x: 0, y: 12, "text-anchor": "middle", fill: accent, "font-size": "32", class: "title-card-txt"
+      }, bg);
+      txt.textContent = displayStr.slice(0, 34);
+    }
+
+    // 2. Live Telemetry HUD Card (W, V, PPM, %, ₱) at y = 1185..1310 (outside face/cutaway overlap)
+    const prog = easeOutExpo(clamp(sceneElapsed / Math.min(1.8, sceneDur * 0.72), 0, 1));
+    const fromVal = Number(scene.hudFrom || 0);
+    const toVal = Number(scene.hudTo != null ? scene.hudTo : 100);
+    const curVal = Math.round(lerp(fromVal, toVal, prog));
+    const unit = scene.hudUnit || "%";
+    const maxRef = Math.max(100, fromVal, toVal);
+    const fillFrac = unit === "%" ? clamp(curVal / 100, 0.04, 1) : clamp(curVal / maxRef, 0.06, 1);
+    const subPulse = (sceneElapsed % 2.5) < 0.35 ? 1 + 0.03 * Math.sin(((sceneElapsed % 2.5) / 0.35) * Math.PI) : 1;
+
+    const hudG = svgEl("g", {
+      transform: "translate(540, 1285) scale(" + (springOvershoot(clamp(sceneElapsed / 0.5, 0, 1)) * subPulse).toFixed(4) + ")",
+      class: "card-shadow"
+    }, elHud);
+    svgEl("rect", {
+      x: -440, y: -62, width: 880, height: 124, rx: 20,
+      fill: "#090E1A", "fill-opacity": "0.93", stroke: "#22D3EE", "stroke-width": "3"
+    }, hudG);
+    const hLbl = svgEl("text", {
+      x: -395, y: -14, fill: "#CBD5E1", "font-size": "25", class: "diagram-txt"
+    }, hudG);
+    hLbl.textContent = (scene.hudLabel || "LIVE SYSTEM TELEMETRY").toUpperCase();
+
+    const formattedVal = unit === "₱" ? ("₱" + curVal.toLocaleString("en-US")) : (curVal + " " + unit);
+    const hNum = svgEl("text", {
+      x: 395, y: -10, "text-anchor": "end", fill: "#FFD60A", "font-size": "38", class: "hud-num"
+    }, hudG);
+    hNum.textContent = formattedVal;
+
+    svgEl("rect", { x: -395, y: 14, width: 790, height: 26, rx: 13, fill: "#1E293B" }, hudG);
+    svgEl("rect", {
+      x: -395, y: 14, width: Math.max(26, 790 * fillFrac), height: 26, rx: 13,
+      fill: scene.statusPill === "PROBLEM" ? "#FF453A" : "#22D3EE"
+    }, hudG);
+
+    // 3. Bold Editorial Hook Title Card during first 1.8s (0.0s .. 1.8s)
+    if (tSec <= 1.8 && SCENES.length > 0) {
+      const hookTitle = (SCENES[0].titleCard || SCENES[0].calloutBanner || "PAANO GUMAGANA ITO?").toUpperCase();
+      const enterT = springOvershoot(clamp(tSec / 0.36, 0, 1));
+      const exitOpacity = tSec > 1.45 ? clamp(1 - (tSec - 1.45) / 0.35, 0, 1) : 1;
+      const hg = svgEl("g", {
+        id: "editorial-hook-overlay",
+        transform: "translate(540, 325) scale(" + enterT.toFixed(4) + ")",
+        opacity: exitOpacity.toFixed(3),
+        class: "card-shadow"
+      }, elHook);
+      svgEl("rect", {
+        x: -440, y: -70, width: 880, height: 140, rx: 24,
+        fill: "#080D18", "fill-opacity": "0.94", stroke: "#FFD60A", "stroke-width": "4.5"
+      }, hg);
+      svgEl("rect", { x: -410, y: -44, width: 12, height: 88, rx: 6, fill: "#FF453A" }, hg);
+      const ht = svgEl("text", {
+        x: 10, y: 14, "text-anchor": "middle", fill: "#FFFFFF", "font-size": "40", class: "title-card-txt"
+      }, hg);
+      ht.textContent = hookTitle.slice(0, 28);
+    }
+  }
+
+  function applyCameraMotion(scene, sceneElapsed, sceneDur, tSec) {
+    const p = clamp(sceneElapsed / Math.max(0.5, sceneDur), 0, 1);
+    const ep = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+
+    // 2.5s Retention Sub-Beat subtle 1.04x emphasis punch-in
+    const beatT = sceneElapsed % 2.5;
+    const subBeatZoom = beatT < 0.38 ? 1 + 0.04 * Math.sin((beatT / 0.38) * Math.PI) : 1.0;
+
+    // Continuous subtle ±3px camera drift
+    const driftX = Math.sin(tSec * 1.15) * 3.0;
+    const driftY = Math.cos(tSec * 0.85) * 3.0;
+
+    let scale = 1.0, tx = driftX, ty = driftY;
+    switch (scene.cameraMotion) {
+      case "ZOOM_IN": scale = lerp(1.0, 1.11, ep); break;
+      case "ZOOM_OUT": scale = lerp(1.12, 1.0, ep); break;
+      case "PAN_LEFT": scale = 1.06; tx += lerp(36, -36, ep); break;
+      case "PAN_RIGHT": scale = 1.06; tx += lerp(-36, 36, ep); break;
+      case "WHIP_PAN_LEFT": scale = 1.07; tx += lerp(95, 0, easeOutExpo(clamp(sceneElapsed / 0.42, 0, 1))); break;
+      case "WHIP_PAN_RIGHT": scale = 1.07; tx += lerp(-95, 0, easeOutExpo(clamp(sceneElapsed / 0.42, 0, 1))); break;
+      default: scale = lerp(1.01, 1.06, ep); break;
+    }
+    scale *= subBeatZoom;
+
+    elCamera.setAttribute(
+      "transform",
+      "translate(540,960) scale(" + scale.toFixed(4) + ") translate(" + (-540 + tx).toFixed(2) + "," + (-960 + ty).toFixed(2) + ")"
+    );
+  }
+
+  function renderViralCaptions(scene, tSec) {
+    clearNode(elCaption);
+    const captions = scene.captions || [];
+    if (captions.length === 0) return;
+
+    let active = captions[0];
+    for (let i = 0; i < captions.length; i++) {
+      if (tSec >= captions[i].startSec) active = captions[i];
+    }
+
+    const popElapsed = Math.max(0, tSec - active.startSec);
+    const popFrac = clamp(popElapsed / 0.14, 0, 1);
+    const popScale = lerp(1.18, 1.0, springOvershoot(popFrac));
+
+    const chunkG = svgEl("g", { transform: "scale(" + popScale.toFixed(4) + ")" }, elCaption);
+    const tokens = active.tokens || [];
+    const txt = svgEl("text", { x: 0, y: 0, "text-anchor": "middle", class: "cap-text" }, chunkG);
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i];
+      const fill = tok.tone === "DANGER" ? "#FF453A" : (tok.tone === "ACCENT" ? "#FFD60A" : "#FFFFFF");
+      const span = svgEl("tspan", { fill: fill }, txt);
+      span.textContent = (i > 0 ? " " : "") + tok.text;
+    }
+  }
+
+  window.seekToTime = function(seconds) {
+    if (SCENES.length === 0) return "empty";
+    const tSec = Math.max(0, Number(seconds) || 0);
+    window.__toonforgeCurrentSec = tSec;
+
+    let idx = 0;
+    for (let i = 0; i < SCENES.length; i++) {
+      if (tSec >= SCENES[i].startSec) idx = i;
+    }
+    const scene = SCENES[idx];
+    const sceneElapsed = Math.max(0, tSec - scene.startSec);
+    const sceneDur = Math.max(0.5, scene.endSec - scene.startSec);
+
+    if (idx !== lastSceneIdx) {
+      renderCutawayStage(scene);
+      lastSceneIdx = idx;
+    }
+
+    applyCameraMotion(scene, sceneElapsed, sceneDur, tSec);
+    renderWeather(scene, tSec);
+    renderAnimatedPathFlowEngine(scene, sceneElapsed, tSec);
+    renderHudAndEditorialHook(scene, sceneElapsed, sceneDur, tSec);
+    renderViralCaptions(scene, tSec);
+    return "ok";
+  };
+
+  window.__toonforgeReady = true;
+  window.seekToTime(0);
+})();
+</script>
+</body>
+</html>

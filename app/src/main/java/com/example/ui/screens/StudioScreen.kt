@@ -1472,12 +1472,14 @@ private fun LiveCanvasPreviewCard(
                         }
                     }
                 } else {
+                    val previewCtx = LocalContext.current
                     val previewHtml = remember(activeScenes, selectedStyle, totalDurMs) {
                         MotionHtmlDirector.buildHtmlDocument(
                             scenes = activeScenes,
                             style = selectedStyle,
                             totalDurationMs = totalDurMs,
-                            includeAiBackdrops = false
+                            includeAiBackdrops = false,
+                            context = previewCtx
                         )
                     }
                     MotionWebViewPreview(

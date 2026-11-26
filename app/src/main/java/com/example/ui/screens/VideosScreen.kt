@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,12 +48,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -73,9 +79,12 @@ import com.example.ui.theme.StudioOutline
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
 import com.example.ui.viewmodel.MainViewModel
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun VideosScreen(
@@ -278,20 +287,10 @@ private fun SavedVideoCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(StudioSurfaceElevated),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Movie,
-                        contentDescription = null,
-                        tint = ForgeAmber,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                SavedVideoCoverThumbnail(
+                    coverFilePath = item.coverFilePath,
+                    displayName = item.displayName
+                )
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -370,6 +369,68 @@ private fun SavedVideoCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SavedVideoCoverThumbnail(
+    coverFilePath: String?,
+    displayName: String
+) {
+    val coverBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = coverFilePath) {
+        value = if (coverFilePath.isNullOrBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = File(coverFilePath)
+                    if (!file.exists() || file.length() <= 0L) return@runCatching null
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .width(54.dp)
+            .height(96.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(StudioSurfaceElevated)
+            .testTag("video_cover_thumbnail"),
+        contentAlignment = Alignment.Center
+    ) {
+        val decoded = coverBitmap
+        if (decoded != null) {
+            Image(
+                bitmap = decoded,
+                contentDescription = "Cover thumbnail for $displayName",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.52f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.Movie,
+                contentDescription = "Video thumbnail placeholder",
+                tint = ForgeAmber,
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }

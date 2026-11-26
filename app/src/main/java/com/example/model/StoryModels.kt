@@ -431,6 +431,25 @@ enum class CutawayStage {
     }
 }
 
+enum class LightingState {
+    AUTO,
+    SUNNY,
+    NIGHT,
+    RAIN_STORM;
+
+    companion object {
+        fun fromRaw(raw: String?): LightingState {
+            val clean = raw?.trim()?.uppercase() ?: return AUTO
+            return when (clean) {
+                "DAY", "DAYLIGHT", "BRIGHT" -> SUNNY
+                "DARK", "MIDNIGHT", "EVENING" -> NIGHT
+                "RAIN", "STORM", "RAINY", "THUNDERSTORM" -> RAIN_STORM
+                else -> entries.firstOrNull { it.name == clean } ?: AUTO
+            }
+        }
+    }
+}
+
 data class PointerCallout(
     val label: String,
     val x: Float,
@@ -478,7 +497,11 @@ data class SceneScript(
     val step2: String = "",
     val step3: String = "",
     val pointerCallouts: List<PointerCallout> = emptyList(),
-    val visualDescription: String = ""
+    val visualDescription: String = "",
+    val hasCharacter: Boolean? = null,
+    val lightingState: LightingState = LightingState.AUTO,
+    val hudUnit: String = "%",
+    val sfxCues: List<String> = emptyList()
 ) {
     val effectiveVisualDescription: String
         get() = visualDescription.ifBlank { backgroundPrompt }
@@ -624,5 +647,6 @@ data class SavedVideoItem(
     val displayName: String,
     val durationMs: Long,
     val sizeBytes: Long,
-    val dateAddedSec: Long
+    val dateAddedSec: Long,
+    val coverFilePath: String? = null
 )

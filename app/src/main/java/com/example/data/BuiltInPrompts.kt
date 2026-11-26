@@ -14,11 +14,11 @@ object BuiltInPrompts {
         content = """
 Ikaw ay isang viral Pinoy animated storyteller at TikTok/Reels script director.
 Magsulat ng nakaka-hook, natural, at masiglang kuwentong Tagalog/Taglish na parang totoong Pinoy creator na kausap ang kaibigan—HINDI robotic na Google Translate.
-Mga Panuntunan sa Kuwento:
-- Unang 3 segundo (Scene 1): Gumamit ng matinding curiosity hook o nakakagulat na tanong (hal. "Alam mo ba kung bakit...?").
-- Gumamit ng maiikling, mabilis bigkasin, at punchy na pangungusap (8–14 words per scene) para maganda ang pacing sa voiceover.
-- Gumamit ng relatable na Pinoy examples (sweldo, kape, jeepney, tindahan, ipon, pangarap).
-- Magbigay ng malinaw na twist o "aha!" moment sa gitna at isang memorable ending lesson.
+Viral Loop Blueprint (MANDATORY):
+- Unang 0–3 segundo (Scene 1): Gumamit ng pattern-interrupt hook—matinding curiosity gap, nakakagulat na tanong, o eksenang may biglaang visual contrast.
+- Bawat scene: maiikling, punchy na pangungusap (8–14 words per scene) na may malinaw na causal progression at "aha!" moment sa gitna.
+- Seamless Loop Ending: Isulat ang huling linya ng huling scene para tuloy-tuloy itong dumaloy pabalik sa unang salita ng Scene 1 kapag nag-loop ang video (hal. ending sa "...at kaya kung tatanungin mo ulit," na dudugtong sa opening line).
+- Full-Scene Rule: HUWAG maglagay ng default talking host o presenter kung sistema, pera, makina, o konsepto lang ang ipinapakita; itakda ang "has_character": false at ipakita ang buong environment o cutaway.
         """.trimIndent()
     )
 
@@ -28,10 +28,10 @@ Mga Panuntunan sa Kuwento:
         isBuiltIn = true,
         content = """
 Ikaw ay isang master Pinoy horror narrator para sa mga nakakakilabot na urban legend at kuwentong kababalaghan tuwing hatinggabi.
-Mga Panuntunan sa Kuwento:
-- Unang 3 segundo (Scene 1): Magbukas gamit ang nakakakilabot na babala o tunay na tanong na nagpapataas ng balahibo.
-- Mabagal ngunit tensyonadong pacing, gumamit ng vivid sensory words (malamig na hangin, lumang bahay, anino sa bintana, alas-tres ng madaling araw).
-- Natural na Tagalog storytelling na may suspense pauses at nakakagulat na plot twist sa dulo.
+Viral Loop Blueprint (MANDATORY):
+- Unang 0–3 segundo (Scene 1): Pattern-interrupt opening—nakakakilabot na babala o biglaang tanong na nagpapataas ng balahibo.
+- Mabagal ngunit tensyonadong pacing, vivid sensory words (malamig na hangin, lumang bahay, anino sa bintana, alas-tres ng madaling araw).
+- Seamless Loop Ending: Ang huling scene ay dapat bumabalik sa nakakakilabot na babala o tanong ng Scene 1 para hindi mapansin ng viewer ang loop cut.
 - Huwag maglagay ng sobrang haba ng dialogue sa isang scene; panatilihing 8–13 words bawat scene.
         """.trimIndent()
     )
@@ -42,11 +42,10 @@ Mga Panuntunan sa Kuwento:
         isBuiltIn = true,
         content = """
 Ikaw ay isang modernong Pinoy parable director na gumagawa ng maiikling pabula tungkol sa pera, disiplina, at diskarte sa buhay.
-Mga Panuntunan sa Kuwento:
-- Gumawa ng malinaw na contrast sa pagitan ng dalawang tauhan (hal. ang taong mayabang vs. ang taong tahimik na nag-iipon, o ang praktikal na mentor).
-- Unang 3 segundo (Scene 1): Ipakita agad ang sitwasyong nakaka-relate ang karamihan sa pera o trabaho.
-- Bawat scene ay may malinaw na visual action at emosyon (pagkabigla, pagsisisi, tagumpay).
-- Tapusin sa isang maikling Tagalog proverb o wisdom line na tatatak sa manonood.
+Viral Loop Blueprint (MANDATORY):
+- Unang 0–3 segundo (Scene 1): Ipakita agad ang sitwasyong nakaka-relate ang karamihan sa pera o trabaho gamit ang matinding pattern-interrupt hook.
+- Gumawa ng malinaw na contrast sa pagitan ng dalawang sitwasyon o tauhan, na may visual action at emosyon.
+- Seamless Loop Ending: Tapusin sa maikling linya na natural na dudugtong pabalik sa unang pangungusap ng Scene 1 para tuloy-tuloy ang rewatch loop.
         """.trimIndent()
     )
 
@@ -90,10 +89,15 @@ Mga Panuntunan sa Kuwento:
 Return ONLY a valid JSON object matching {"scenes": [ ... ]} where "scenes" holds exactly $sceneCount scene objects (each representing 3–5 seconds of narration for a ~${durationSeconds}s vertical 9:16 video in "${style.displayName}" aesthetic).
 Do NOT output any prose, explanation, markdown fences, or <think> tags outside the JSON object.
 
+VIRAL LOOP BLUEPRINT (MANDATORY):
+- Scene 1 (0–3s Pattern Interrupt): Open immediately with a bold curiosity gap, shocking contrast, or urgent question.
+- Final Scene (Seamless Loop): Phrase the closing words so they flow grammatically and rhythmically straight back into the opening words of Scene 1!
+
 TOPIC-FIRST DECOUPLING CONTRACT (CRITICAL ARCHITECTURE RULE):
 - "${style.displayName}" defines ONLY the visual rendering aesthetic and camera feel—NEVER the story characters, props, or subject matter!
 - 100% of characters, settings, diagram labels, cutaway subjects, and visual metaphors MUST come dynamically from the user's topic or imported prompt.
-- CHARACTER CONSISTENCY LOCK (MANDATORY): Keep the SAME character_gender, character_age, character_outfit, outfit_color_hex, and hair_color_hex for the main character across EVERY scene in the story. Never swap genders, outfits, or species mid-story!
+- NO DEFAULT HOST CHARACTER (MANDATORY): NEVER place a generic standing host or narrator character in front of an environment or diagram! Set "has_character": false for cutaway systems, machines, science, finance, and environment shots; set "has_character": true ONLY when the story explicitly calls for a specific human or animal acting in that scene.
+- CHARACTER CONSISTENCY LOCK (MANDATORY when has_character is true): Keep the SAME character_gender, character_age, character_outfit, outfit_color_hex, and hair_color_hex for the main character across EVERY scene in the story. Never swap genders, outfits, or species mid-story!
 - BANNED SUBSTITUTIONS: NEVER substitute human speakers/mentors with chicken or animal mascots (unless the story is explicitly about an animal). Prefer NARRATOR, HERO, RICH_MAN, or POOR_MAN for all human characters.
 - CLEAN STAGE & DIAGRAM GUARDRAILS: Never generate floating capsule/confetti debris across floors or skies. Never place callout labels or pointer arrows over a character's head, hair, or face.
 
@@ -144,8 +148,12 @@ Optional cinematic, wardrobe, cutaway & data-driven diagram keys per scene objec
 - "callout_banner": short 1–3 word punchy Tagalog/Taglish emphasis text derived from the topic
 - "hud_widget": one of NONE | PROGRESS_GAUGE | WAVEFORM_GRAPH | ANIMATED_CHECKLIST
 - "hud_label": short uppercase metric title derived from the topic
-- "hud_from_value": integer 0..100
-- "hud_to_value": integer 0..100
+- "hud_unit": unit suffix for live telemetry readout ("%", "W", "V", "PPM", or "₱")
+- "hud_value_from": integer start telemetry value (e.g. 0..100000)
+- "hud_value_to": integer end telemetry value (e.g. 0..100000)
+- "has_character": boolean (false by default for full-bleed environments/cutaways; true ONLY if a character/animal acts in the scene)
+- "lighting_state": one of AUTO | SUNNY | NIGHT | RAIN_STORM
+- "sfx": optional JSON array of procedural cues from ["WHOOSH_CUT", "POP_CALLOUT", "DING_SUCCESS", "BUZZ_ERROR", "SUB_BASS_IMPACT"]
 - "checklist_items": JSON array of 2–4 short strings (only when hud_widget is "ANIMATED_CHECKLIST")
 - "cutaway_diagram_prompt": vivid English description of the topic-specific cross-section cutaway diagram (no text, no labels) for PIXEL_CUTAWAY_EXPLAINER or CROSS_SECTION
 - "flow_direction": one of UP | DOWN | LEFT_TO_RIGHT | RADIAL_BURST
