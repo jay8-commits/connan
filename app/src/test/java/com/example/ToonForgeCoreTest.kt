@@ -2414,4 +2414,69 @@ class ToonForgeCoreTest {
         )
         assertTrue(vecPrompt.contains("2D flat vector illustration, cel-shaded, clean dark outlines, atmospheric lighting, no text, no watermark, no people"))
     }
+
+    @Test
+    fun `customHtmlStoryboardJsonExtractionTimingScriptAndBoundarySfx`() {
+        val htmlWithStoryboardJson = """
+            <!DOCTYPE html>
+            <html lang="tl">
+            <head><meta charset="utf-8" /></head>
+            <body>
+              <svg viewBox="0 0 1080 1920"><rect width="1080" height="1920" fill="#0F172A" /></svg>
+              <script>
+                // Reference storyboard-json before the JSON tag to ensure attribute matching ignores JS code
+                var sceneDurations = [2.0, 2.0, 2.0];
+                window.setSceneTimings = function(arr) { sceneDurations = arr; };
+                window.seekToTime = function(sec) { window.__t = sec; };
+              </script>
+              <script id="storyboard-json" type="application/json">
+              [
+                {
+                  "scene_id": 1,
+                  "tagalog_narration": "Una, tingnan ang kuryente sa bahay."
+                },
+                {
+                  "scene_id": 2,
+                  "tagalog_narration": "Solar panel!"
+                },
+                {
+                  "scene_id": 3,
+                  "tagalog_narration": "Bawas agad ang monthly bill mo sa Meralco."
+                }
+              ]
+              </script>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val parsed = DirectStoryboardParser.parse(htmlWithStoryboardJson, AnimationStyle.CROSS_SECTION)
+        assertTrue(parsed.isCustomHtmlOrSvg)
+        assertEquals("Direct Custom HTML", parsed.providerLabel)
+        assertEquals(3, parsed.scenes.size)
+        assertEquals("Una, tingnan ang kuryente sa bahay.", parsed.scenes[0].tagalogNarration)
+        assertEquals("Solar panel!", parsed.scenes[1].tagalogNarration)
+        assertEquals("Bawas agad ang monthly bill mo sa Meralco.", parsed.scenes[2].tagalogNarration)
+        assertFalse(parsed.scenes.any { it.tagalogNarration.contains("Narito ang detalyadong animated visual explainer") })
+        assertEquals("Custom HTML • 3 scene(s)", DirectStoryboardParser.estimatePreviewSummary(htmlWithStoryboardJson))
+        assertTrue(DirectStoryboardParser.deriveTopicTitle(htmlWithStoryboardJson).startsWith("Una, tingnan"))
+
+        // Verify exact JS timing sync call for WebViewFrameRenderer
+        val timingJs = com.example.render.WebViewFrameRenderer.buildSetSceneTimingsScript(listOf(2.45, 1.35, 3.8))
+        assertEquals("if(window.setSceneTimings){window.setSceneTimings([2.4500,1.3500,3.8000]);}", timingJs)
+
+        // Verify custom HTML SFX timeline fires SUB_BASS_IMPACT at 0.1s and WHOOSH_CUT + POP_CALLOUT at every scene boundary
+        val customSfxTimeline = SfxTimelineMixer.buildSfxTimeline(
+            scenes = parsed.scenes,
+            sceneStartMs = listOf(0.0, 2450.0, 3800.0),
+            sceneEndMs = listOf(2450.0, 3800.0, 7600.0),
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+            alwaysTriggerSceneBoundarySfx = true
+        )
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.SUB_BASS_IMPACT && abs(it.timeSec - 0.10) < 0.001 })
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT && abs(it.timeSec - 0.0) < 0.001 })
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.WHOOSH_CUT && abs(it.timeSec - 2.45) < 0.001 })
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT && abs(it.timeSec - 2.45) < 0.001 })
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.WHOOSH_CUT && abs(it.timeSec - 3.80) < 0.001 })
+        assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT && abs(it.timeSec - 3.80) < 0.001 })
+    }
 }

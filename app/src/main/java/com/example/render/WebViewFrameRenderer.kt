@@ -44,12 +44,20 @@ class WebViewFrameRenderer private constructor(
         @Volatile
         private var slowWholeDocEnabled = false
 
+        fun buildSetSceneTimingsScript(durationsSec: List<Double>): String {
+            val formatted = durationsSec.joinToString(",") { sec ->
+                String.format(java.util.Locale.US, "%.4f", sec.coerceAtLeast(0.05))
+            }
+            return "if(window.setSceneTimings){window.setSceneTimings([$formatted]);}"
+        }
+
         @SuppressLint("SetJavaScriptEnabled")
         suspend fun create(
             context: Context,
             htmlDocument: String,
             width: Int = 1080,
-            height: Int = 1920
+            height: Int = 1920,
+            sceneDurationsSec: List<Double> = emptyList()
         ): WebViewFrameRenderer = withContext(Dispatchers.Main.immediate) {
             if (!slowWholeDocEnabled) {
                 runCatching { WebView.enableSlowWholeDocumentDraw() }
@@ -57,7 +65,7 @@ class WebViewFrameRenderer private constructor(
             }
 
             val renderer = WebViewFrameRenderer(width, height)
-            renderer.initializeOnMain(context, htmlDocument)
+            renderer.initializeOnMain(context, htmlDocument, sceneDurationsSec)
             renderer
         }
     }
@@ -70,7 +78,11 @@ class WebViewFrameRenderer private constructor(
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun initializeOnMain(context: Context, htmlDocument: String) {
+    private suspend fun initializeOnMain(
+        context: Context,
+        htmlDocument: String,
+        sceneDurationsSec: List<Double> = emptyList()
+    ) {
         val pageFinished = CompletableDeferred<Unit>()
 
         // Try hardware-accelerated offscreen VirtualDisplay + Presentation first
@@ -130,7 +142,27 @@ class WebViewFrameRenderer private constructor(
         }
         layoutWebView(wv)
         awaitReadyFlag(wv)
+        if (sceneDurationsSec.isNotEmpty()) {
+            evaluateSceneTimingsOnWebView(wv, sceneDurationsSec)
+        }
         awaitVisualCommit(wv)
+    }
+
+    suspend fun setSceneTimings(durationsSec: List<Double>) = withContext(Dispatchers.Main.immediate) {
+        val wv = webView ?: return@withContext
+        if (durationsSec.isEmpty()) return@withContext
+        evaluateSceneTimingsOnWebView(wv, durationsSec)
+        wv.invalidate()
+        awaitVisualCommit(wv)
+    }
+
+    private suspend fun evaluateSceneTimingsOnWebView(wv: WebView, durationsSec: List<Double>) {
+        val js = buildSetSceneTimingsScript(durationsSec)
+        suspendCancellableCoroutine<Unit> { cont ->
+            wv.evaluateJavascript(js) {
+                if (cont.isActive) cont.resume(Unit)
+            }
+        }
     }
 
     private fun tryCreateHardwarePresentationContext(context: Context): Context? {

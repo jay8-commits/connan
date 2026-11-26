@@ -44,13 +44,19 @@ object SfxTimelineMixer {
         scenes: List<SceneScript>,
         sceneStartMs: List<Double>,
         sceneEndMs: List<Double>,
-        style: AnimationStyle
+        style: AnimationStyle,
+        alwaysTriggerSceneBoundarySfx: Boolean = false
     ): List<ScheduledSfxEvent> {
         if (scenes.isEmpty() || sceneStartMs.isEmpty()) return emptyList()
         val events = mutableListOf<ScheduledSfxEvent>()
 
-        // 1. Opening 0.2s editorial hook banner impact
-        events += ScheduledSfxEvent(timeSec = 0.20, cue = ProceduralSfxCue.SUB_BASS_IMPACT, seed = 101)
+        // 1. Opening hook impact (0.1s for custom HTML/SVG storyboards, 0.2s default)
+        val openingImpactTime = if (alwaysTriggerSceneBoundarySfx) 0.10 else 0.20
+        events += ScheduledSfxEvent(
+            timeSec = openingImpactTime,
+            cue = ProceduralSfxCue.SUB_BASS_IMPACT,
+            seed = 101
+        )
 
         for (idx in scenes.indices) {
             val scene = scenes[idx]
@@ -83,7 +89,9 @@ object SfxTimelineMixer {
                 style == AnimationStyle.TECH_EXPLAINER ||
                 style == AnimationStyle.CROSS_SECTION
 
-            if (hasBanner || effectivePill != StatusPill.NONE) {
+            if (alwaysTriggerSceneBoundarySfx) {
+                events += ScheduledSfxEvent(timeSec = startSec, cue = ProceduralSfxCue.POP_CALLOUT, seed = idx)
+            } else if (hasBanner || effectivePill != StatusPill.NONE) {
                 events += ScheduledSfxEvent(timeSec = startSec + 0.08, cue = ProceduralSfxCue.POP_CALLOUT, seed = idx)
             }
 

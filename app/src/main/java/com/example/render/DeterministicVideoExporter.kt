@@ -71,7 +71,8 @@ class DeterministicVideoExporter(
         customSprites: Map<ActorRole, Bitmap> = emptyMap(),
         externalClipFrameSource: ExternalClipFrameSource? = null,
         frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null,
-        captureCoverAtMs: Double = 1200.0
+        captureCoverAtMs: Double = 1200.0,
+        overlayCaptionsOnCustomFrames: Boolean = false
     ): ExportResult = withContext(Dispatchers.Default) {
         val totalFrames = ceil((totalDurationMs / 1000.0) * VIDEO_FPS).toInt().coerceAtLeast(30)
         val tempMp4File = File(tempCacheDir, "render_${UUID.randomUUID()}.mp4")
@@ -301,6 +302,17 @@ class DeterministicVideoExporter(
                         externalClipFrameProvider = externalClipFrameSource?.let { source ->
                             { sceneIdx, localMs -> source.getFrameBitmap(sceneIdx, localMs) }
                         }
+                    )
+                } else if (overlayCaptionsOnCustomFrames && scenes.isNotEmpty()) {
+                    val activeScene = scenes.lastOrNull { currentMs >= it.startMs } ?: scenes.first()
+                    WorldFxAndCaptionRenderer.drawKaraokeCaptions(
+                        canvas = frameCanvas,
+                        w = VIDEO_WIDTH.toFloat(),
+                        h = VIDEO_HEIGHT.toFloat(),
+                        style = style,
+                        wordTimings = activeScene.wordTimings,
+                        fallbackNarration = activeScene.scene.tagalogNarration,
+                        currentMs = currentMs
                     )
                 }
                 if (frameIndex == targetCoverFrame && capturedCoverBitmap == null) {

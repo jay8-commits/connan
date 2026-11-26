@@ -305,7 +305,8 @@ object AudioPcmStitcher {
         scenes: List<SceneScript> = emptyList(),
         style: AnimationStyle = AnimationStyle.PAPER_DIORAMA,
         customBgmPcm44100Mono: ByteArray? = null,
-        targetDurationMs: Double? = null
+        targetDurationMs: Double? = null,
+        alwaysTriggerSceneBoundarySfx: Boolean = false
     ): StitchedAudioTimeline {
         val unifiedStream = ByteArrayOutputStream()
         val starts = mutableListOf<Double>()
@@ -381,7 +382,8 @@ object AudioPcmStitcher {
                 sceneStartMs = starts,
                 sceneEndMs = ends,
                 style = style,
-                customBgmPcm44100Mono = customBgmPcm44100Mono
+                customBgmPcm44100Mono = customBgmPcm44100Mono,
+                alwaysTriggerSceneBoundarySfx = alwaysTriggerSceneBoundarySfx
             )
         } else {
             dryVoicePcm
@@ -407,7 +409,8 @@ object AudioPcmStitcher {
         sceneStartMs: List<Double>,
         sceneEndMs: List<Double>,
         style: AnimationStyle,
-        customBgmPcm44100Mono: ByteArray? = null
+        customBgmPcm44100Mono: ByteArray? = null,
+        alwaysTriggerSceneBoundarySfx: Boolean = false
     ): ByteArray {
         val sampleCount = dryVoicePcm.size / 2
         if (sampleCount == 0) return dryVoicePcm
@@ -450,7 +453,8 @@ object AudioPcmStitcher {
             scenes = scenes,
             sceneStartMs = sceneStartMs,
             sceneEndMs = sceneEndMs,
-            style = style
+            style = style,
+            alwaysTriggerSceneBoundarySfx = alwaysTriggerSceneBoundarySfx
         )
         SfxTimelineMixer.mixSfxEventsIntoBuffer(
             mix = mix,

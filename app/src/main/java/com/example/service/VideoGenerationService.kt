@@ -371,7 +371,8 @@ class VideoGenerationService : Service() {
                 scenes = scenes,
                 style = style,
                 customBgmPcm44100Mono = customBgmPcm,
-                targetDurationMs = durationSec * 1000.0
+                targetDurationMs = durationSec * 1000.0,
+                alwaysTriggerSceneBoundarySfx = (directCustomHtmlDoc != null)
             )
             pcmPerScene.clear() // release per-scene chunks immediately; keep unified buffer
 
@@ -582,12 +583,23 @@ class VideoGenerationService : Service() {
                     includeAiBackdrops = scenes.any { it.customSvg.isBlank() } || settings.enableAiBackgroundArt,
                     context = applicationContext
                 )
+                val sceneDurationsSec = if (directCustomHtmlDoc != null) {
+                    stitchedAudio.sceneStartMs.indices.map { i ->
+                        ((stitchedAudio.sceneEndMs[i] - stitchedAudio.sceneStartMs[i]) / 1000.0)
+                            .coerceAtLeast(0.1)
+                    }
+                } else {
+                    emptyList()
+                }
                 val renderer = WebViewFrameRenderer.create(
                     context = applicationContext,
                     htmlDocument = htmlDoc,
                     width = DeterministicVideoExporter.VIDEO_WIDTH,
                     height = DeterministicVideoExporter.VIDEO_HEIGHT
                 )
+                if (directCustomHtmlDoc != null && sceneDurationsSec.isNotEmpty()) {
+                    renderer.setSceneTimings(sceneDurationsSec)
+                }
                 webViewFrameRenderer = renderer
                 { _, currentMs, targetBitmap ->
                     renderer.renderFrameAt(currentMs / 1000.0, targetBitmap)
@@ -623,7 +635,8 @@ class VideoGenerationService : Service() {
                 productionMode = productionMode,
                 customSprites = customSprites,
                 externalClipFrameSource = externalClipFrameSource,
-                frameBitmapProvider = frameProvider
+                frameBitmapProvider = frameProvider,
+                overlayCaptionsOnCustomFrames = (directCustomHtmlDoc != null)
             )
 
             PipelineProgressBus.update { cur ->

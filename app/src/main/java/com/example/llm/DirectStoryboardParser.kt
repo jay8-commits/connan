@@ -375,10 +375,13 @@ $normalizedSvg
     ): List<SceneScript> {
         val embeddedJson = extractEmbeddedStoryboardJson(cleanedMarkup)
         if (!embeddedJson.isNullOrBlank()) {
-            val parsed = runCatching { jsonSceneParser(enrichMinimalJsonIfSupported(embeddedJson, style)) }
+            val strictParsed = runCatching { jsonSceneParser(enrichMinimalJsonIfSupported(embeddedJson, style)) }
                 .getOrNull()
                 .orEmpty()
-            if (parsed.isNotEmpty()) return parsed
+            if (strictParsed.isNotEmpty()) return strictParsed
+
+            val relaxedParsed = parseEmbeddedStoryboardJsonRelaxed(embeddedJson, style)
+            if (relaxedParsed.isNotEmpty()) return relaxedParsed
         }
 
         val extractedNarration = extractNarrationFromMarkup(cleanedMarkup)
@@ -402,16 +405,187 @@ $normalizedSvg
         }
     }
 
-    private fun extractEmbeddedStoryboardJson(markup: String): String? {
+    private data class ScriptTagBlock(
+        val openTagLower: String,
+        val body: String
+    )
+
+    private fun extractScriptTagBlocks(markup: String): List<ScriptTagBlock> {
         val lower = markup.lowercase()
-        val idMarker = "storyboard-data"
-        val idIdx = lower.indexOf(idMarker)
-        if (idIdx < 0) return null
-        val gtIdx = markup.indexOf('>', idIdx)
-        if (gtIdx < 0) return null
-        val endScript = lower.indexOf("</script>", gtIdx)
-        if (endScript <= gtIdx) return null
-        return markup.substring(gtIdx + 1, endScript).trim()
+        val blocks = mutableListOf<ScriptTagBlock>()
+        var searchFrom = 0
+        while (searchFrom < lower.length) {
+            val scriptStart = lower.indexOf("<script", searchFrom)
+            if (scriptStart < 0) break
+            val nextChar = lower.getOrNull(scriptStart + 7)
+            if (nextChar != null && !nextChar.isWhitespace() && nextChar != '>') {
+                searchFrom = scriptStart + 7
+                continue
+            }
+            val openEnd = markup.indexOf('>', scriptStart)
+            if (openEnd < 0) break
+            val closeTag = lower.indexOf("</script>", openEnd + 1)
+            if (closeTag < 0) break
+            val openTag = lower.substring(scriptStart, openEnd + 1)
+            val body = markup.substring(openEnd + 1, closeTag).trim()
+            blocks.add(ScriptTagBlock(openTagLower = openTag, body = body))
+            searchFrom = closeTag + 9
+        }
+        return blocks
+    }
+
+    private fun hasTagIdOrMarker(openTagLower: String, idValue: String): Boolean {
+        val needle = idValue.lowercase()
+        return openTagLower.contains("\"$needle\"") ||
+            openTagLower.contains("'$needle'") ||
+            openTagLower.contains("=$needle")
+    }
+
+    private fun extractEmbeddedStoryboardJson(markup: String): String? {
+        val blocks = extractScriptTagBlocks(markup)
+        if (blocks.isEmpty()) return null
+
+        val priorityMatches = listOf(
+            blocks.firstOrNull { hasTagIdOrMarker(it.openTagLower, "storyboard-json") && it.body.isNotEmpty() },
+            blocks.firstOrNull { hasTagIdOrMarker(it.openTagLower, "storyboard-data") && it.body.isNotEmpty() },
+            blocks.firstOrNull {
+                it.openTagLower.contains("application/json") &&
+                    (it.body.startsWith("[") || it.body.startsWith("{"))
+            },
+            blocks.firstOrNull {
+                it.body.contains("\"tagalog_narration\"") &&
+                    (it.body.startsWith("[") || it.body.startsWith("{"))
+            }
+        )
+        return priorityMatches.firstOrNull { it != null }?.body
+    }
+
+    private fun parseEmbeddedStoryboardJsonRelaxed(
+        rawJson: String,
+        style: AnimationStyle
+    ): List<SceneScript> {
+        return try {
+            val trimmed = stripCodeFenceIfNeeded(rawJson).trim()
+            val array: JSONArray = if (trimmed.startsWith("[")) {
+                JSONArray(trimmed)
+            } else if (trimmed.startsWith("{")) {
+                val root = JSONObject(trimmed)
+                root.optJSONArray("scenes")
+                    ?: root.optJSONArray("storyboard")
+                    ?: root.optJSONArray("script")
+                    ?: root.optJSONArray("items")
+                    ?: root.optJSONArray("data")
+                    ?: if (root.has("tagalog_narration") || root.has("narration")) {
+                        JSONArray().apply { put(root) }
+                    } else {
+                        return emptyList()
+                    }
+            } else {
+                return emptyList()
+            }
+
+            val parsedScenes = mutableListOf<SceneScript>()
+            for (i in 0 until array.length()) {
+                val item = array.opt(i) ?: continue
+                if (item is String) {
+                    val clean = TagalogNarrationValidator.cleanForTts(item).ifBlank { item.trim() }
+                    if (clean.isNotBlank()) {
+                        parsedScenes.add(
+                            SceneScript(
+                                sceneId = parsedScenes.size + 1,
+                                tagalogNarration = clean,
+                                backgroundPrompt = "${style.displayName} custom HTML SVG visual storyboard",
+                                visualDescription = "Custom pasted HTML/SVG storyboard frame.",
+                                cameraMotion = CAMERA_MOTION_ROTATION[parsedScenes.size % CAMERA_MOTION_ROTATION.size],
+                                actorRole = ActorRole.NARRATOR,
+                                actorAction = ActorAction.TALK_BOUNCE,
+                                worldFx = WorldFx.NONE,
+                                hasCharacter = false
+                            )
+                        )
+                    }
+                    continue
+                }
+                val obj = item as? JSONObject ?: continue
+                val rawNarration = listOf(
+                    obj.optString("tagalog_narration", ""),
+                    obj.optString("narration", ""),
+                    obj.optString("voiceover", ""),
+                    obj.optString("script", ""),
+                    obj.optString("text", "")
+                ).firstOrNull { it.isNotBlank() }.orEmpty()
+                val cleanNarration = TagalogNarrationValidator.cleanForTts(rawNarration)
+                    .ifBlank { rawNarration.trim() }
+                if (cleanNarration.isBlank()) continue
+
+                val sceneId = obj.optInt("scene_id", parsedScenes.size + 1).let {
+                    if (it > 0) it else parsedScenes.size + 1
+                }
+                val vis = obj.optString("visual_description", "").trim()
+                    .ifBlank { "Custom pasted HTML/SVG storyboard frame rendering deterministic vector animation." }
+                val bg = obj.optString("background_prompt", "").trim()
+                    .ifBlank { "${style.displayName} custom HTML SVG visual storyboard" }
+                val cameraMotion = CameraMotion.fromRaw(obj.optString("camera_motion", ""))
+                    .let { if (it == CameraMotion.STATIC) CAMERA_MOTION_ROTATION[i % CAMERA_MOTION_ROTATION.size] else it }
+                val statusPill = StatusPill.fromRaw(obj.optString("status_pill", "NONE"))
+                val calloutBanner = obj.optString("callout_banner", "").trim()
+                val topicPill = obj.optString("topic_pill", "").trim()
+                val hudWidget = HudWidget.fromRaw(obj.optString("hud_widget", "NONE"))
+                val hudLabel = obj.optString("hud_label", "").trim()
+                val hudUnit = obj.optString("hud_unit", "%").trim().ifBlank { "%" }
+                val hudFrom = if (obj.has("hud_value_from")) obj.optInt("hud_value_from", 0) else obj.optInt("hud_from_value", 0)
+                val hudTo = if (obj.has("hud_value_to")) obj.optInt("hud_value_to", 100) else obj.optInt("hud_to_value", 100)
+                val worldFx = WorldFx.fromRaw(obj.optString("world_fx", "NONE"))
+                val hasChar = if (obj.has("has_character") && !obj.isNull("has_character")) {
+                    obj.optBoolean("has_character")
+                } else {
+                    false
+                }
+                val sfxCues = buildList {
+                    val sfxArr = obj.optJSONArray("sfx")
+                    if (sfxArr != null) {
+                        for (k in 0 until sfxArr.length()) {
+                            val token = sfxArr.optString(k, "").trim().uppercase()
+                            if (token.isNotEmpty()) add(token)
+                        }
+                    } else {
+                        val sfxStr = obj.optString("sfx", "").trim()
+                        if (sfxStr.isNotEmpty()) {
+                            sfxStr.split(',').forEach { part ->
+                                val token = part.trim().uppercase()
+                                if (token.isNotEmpty()) add(token)
+                            }
+                        }
+                    }
+                }
+
+                parsedScenes.add(
+                    SceneScript(
+                        sceneId = sceneId,
+                        tagalogNarration = cleanNarration,
+                        backgroundPrompt = bg,
+                        visualDescription = vis,
+                        cameraMotion = cameraMotion,
+                        actorRole = ActorRole.NARRATOR,
+                        actorAction = ActorAction.TALK_BOUNCE,
+                        worldFx = worldFx,
+                        statusPill = statusPill,
+                        calloutBanner = calloutBanner,
+                        topicPillLabel = topicPill,
+                        hudWidget = hudWidget,
+                        hudLabel = hudLabel,
+                        hudUnit = hudUnit,
+                        hudFromValue = hudFrom,
+                        hudToValue = hudTo,
+                        hasCharacter = hasChar,
+                        sfxCues = sfxCues
+                    )
+                )
+            }
+            parsedScenes
+        } catch (_: Throwable) {
+            emptyList()
+        }
     }
 
     private fun extractNarrationFromMarkup(markup: String): String {
@@ -677,11 +851,21 @@ $normalizedSvg
 
     fun deriveTopicTitle(rawInput: String): String {
         if (looksLikeHtmlOrSvgInput(rawInput)) {
-            val narration = extractNarrationFromMarkup(stripCodeFenceIfNeeded(rawInput))
+            val cleanedMarkup = stripCodeFenceIfNeeded(rawInput)
+            val embeddedJson = extractEmbeddedStoryboardJson(cleanedMarkup)
+            val embeddedNarration = if (!embeddedJson.isNullOrBlank()) {
+                extractFirstJsonStringValue(embeddedJson, "tagalog_narration")
+                    ?: extractFirstJsonStringValue(embeddedJson, "narration")
+            } else {
+                null
+            }
+            val narration = embeddedNarration?.takeIf { it.isNotBlank() }
+                ?.let { TagalogNarrationValidator.cleanForTts(it).ifBlank { it } }
+                ?: extractNarrationFromMarkup(cleanedMarkup)
             if (narration.isNotBlank()) {
                 return narration.split(Regex("\\s+")).filter { it.isNotBlank() }.take(6).joinToString(" ")
             }
-            val isRawSvg = stripCodeFenceIfNeeded(rawInput).trimStart().startsWith("<svg", ignoreCase = true)
+            val isRawSvg = cleanedMarkup.trimStart().startsWith("<svg", ignoreCase = true)
             return if (isRawSvg) "Custom SVG Storyboard" else "Custom HTML Storyboard"
         }
         val cleaned = if (looksLikeJsonInput(rawInput)) {
@@ -700,8 +884,16 @@ $normalizedSvg
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return "Empty"
         if (looksLikeHtmlOrSvgInput(trimmed)) {
-            val isRawSvg = stripCodeFenceIfNeeded(trimmed).trimStart().startsWith("<svg", ignoreCase = true)
-            return if (isRawSvg) "Custom SVG • Ready" else "Custom HTML • Ready"
+            val cleanedMarkup = stripCodeFenceIfNeeded(trimmed)
+            val isRawSvg = cleanedMarkup.trimStart().startsWith("<svg", ignoreCase = true)
+            val prefix = if (isRawSvg) "Custom SVG" else "Custom HTML"
+            val embeddedJson = extractEmbeddedStoryboardJson(cleanedMarkup)
+            if (!embeddedJson.isNullOrBlank()) {
+                val sceneCount = parseEmbeddedStoryboardJsonRelaxed(embeddedJson, AnimationStyle.ATMOSPHERIC_2D_STORY).size
+                    .let { if (it > 0) it else countKeyOccurrences(embeddedJson, "\"tagalog_narration\"") }
+                if (sceneCount > 0) return "$prefix • $sceneCount scene(s)"
+            }
+            return "$prefix • Ready"
         }
         if (looksLikeJsonInput(trimmed)) {
             val count = countKeyOccurrences(trimmed, "\"tagalog_narration\"")
