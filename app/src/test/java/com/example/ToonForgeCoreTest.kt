@@ -57,12 +57,16 @@ import com.example.model.ShotFraming
 import com.example.model.ShotType
 import com.example.model.StatusPill
 import com.example.model.StudioSettings
+import com.example.model.TimelineScene
 import com.example.model.WordTiming
 import com.example.model.WorldFx
 import com.example.render.CameraController
 import com.example.render.CharacterSpriteProcessor
 import com.example.render.DynamicDiagramRenderer
 import com.example.render.MetaphorVisualRenderer
+import com.example.render.MotionHtmlDirector
+import com.example.render.MotionPresetEngine
+import com.example.render.ViralCaptionTone
 import com.example.render.PixelCutawayRenderer
 import com.example.render.ProceduralPuppetEngine
 import com.example.render.PuppetSpringSolver
@@ -190,7 +194,7 @@ class ToonForgeCoreTest {
 
     @Test
     fun `techExplainerAndStudioProModelsMaintainSafeDefaults`() {
-        assertEquals(9, AnimationStyle.entries.size)
+        assertEquals(12, AnimationStyle.entries.size)
         assertTrue(AnimationStyle.TECH_EXPLAINER.usesNetworkArt)
         assertEquals("HUD EXPLAINER", AnimationStyle.TECH_EXPLAINER.badge)
         assertEquals("Viral HUD & Motion Explainer", AnimationStyle.TECH_EXPLAINER.displayName)
@@ -2067,5 +2071,113 @@ class ToonForgeCoreTest {
         assertTrue(parsedJson.scenes[0].visualDescription.contains(AnimationStyle.TECH_EXPLAINER.displayName))
         assertEquals(HandProp.MONEY_BAG, parsedJson.scenes[0].handProp)
         assertEquals("UBOS AGAD?", parsedJson.scenes[0].calloutBanner)
+    }
+
+    @Test
+    fun `motionHtmlEngineFourViralPresetsIdentityLockAndViralCaptionsWork`() {
+        // 1. Verify 4 selectable studio viral presets with ATMOSPHERIC_2D_STORY first
+        assertEquals(4, AnimationStyle.STUDIO_VIRAL_PRESETS.size)
+        assertEquals(AnimationStyle.ATMOSPHERIC_2D_STORY, AnimationStyle.STUDIO_VIRAL_PRESETS[0])
+        assertEquals(AnimationStyle.STYLIZED_25D_EXPLAINER, AnimationStyle.STUDIO_VIRAL_PRESETS[1])
+        assertEquals(AnimationStyle.PAPER_DIORAMA, AnimationStyle.STUDIO_VIRAL_PRESETS[2])
+        assertEquals(AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM, AnimationStyle.STUDIO_VIRAL_PRESETS[3])
+
+        assertEquals(MotionPresetEngine.ATMOSPHERIC_2D, MotionHtmlDirector.mapPresetEngine(AnimationStyle.ATMOSPHERIC_2D_STORY))
+        assertEquals(MotionPresetEngine.STYLIZED_25D, MotionHtmlDirector.mapPresetEngine(AnimationStyle.STYLIZED_25D_EXPLAINER))
+        assertEquals(MotionPresetEngine.PAPER_DIORAMA, MotionHtmlDirector.mapPresetEngine(AnimationStyle.PAPER_DIORAMA))
+        assertEquals(MotionPresetEngine.KINETIC_DIAGRAM, MotionHtmlDirector.mapPresetEngine(AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM))
+
+        // 2. Default settings keep AI background art OFF; when enabled, prompt enforces NO people/characters
+        assertFalse(StudioSettings().enableAiBackgroundArt)
+        val aiStagePrompt = AiHordeImageClient.buildEmptyStagePrompt("cozy bedroom night", AnimationStyle.PAPER_DIORAMA)
+        assertTrue(aiStagePrompt.contains("NO people"))
+        assertTrue(aiStagePrompt.contains("NO humans"))
+        assertTrue(aiStagePrompt.contains("NO characters"))
+        assertTrue(aiStagePrompt.contains("NO faces"))
+
+        // 3. HandProp aliases & DirectStoryboardParser no-chicken guardrail
+        assertEquals(HandProp.MONEY_BAG, HandProp.fromRaw("WALLET_CASH"))
+        assertEquals(HandProp.BOOK_NOTEBOOK, HandProp.fromRaw("DOCUMENT_PAPER"))
+        assertEquals(HandProp.PHONE_SCREEN, HandProp.fromRaw("PHONE"))
+        assertFalse(DirectStoryboardParser.COPY_JSON_TEMPLATE.contains("CHICKEN_MENTOR"))
+
+        val plainTagalog = "Alam mo ba kung bakit ubos ang sahod mo kahit todo trabaho ka araw-araw? Magtabi agad ng ipon bago gumastos."
+        val plainParsed = DirectStoryboardParser.parse(plainTagalog, AnimationStyle.ATMOSPHERIC_2D_STORY)
+        assertTrue(plainParsed.scenes.none { it.actorRole == ActorRole.CHICKEN_MENTOR })
+
+        // 4. Character identity lock & human-mentor protection
+        val humanStoryScene1 = SceneScript(
+            sceneId = 1,
+            tagalogNarration = "Alam mo ba kung bakit ubos ang sahod mo sa gastos?",
+            backgroundPrompt = "midnight bedroom",
+            cameraMotion = CameraMotion.ZOOM_IN,
+            actorRole = ActorRole.HERO,
+            actorAction = ActorAction.TALK_BOUNCE,
+            worldFx = WorldFx.NONE,
+            characterGender = CharacterGender.FEMALE,
+            characterAge = CharacterAge.YOUNG_ADULT,
+            characterOutfit = CharacterOutfit.HOODIE,
+            outfitColorHex = "#E11D48",
+            hairColorHex = "#111827",
+            handProp = HandProp.MONEY_BAG
+        )
+        val humanStoryScene2 = humanStoryScene1.copy(
+            sceneId = 2,
+            actorRole = ActorRole.CHICKEN_MENTOR,
+            characterGender = null,
+            characterOutfit = null,
+            outfitColorHex = "",
+            tagalogNarration = "Magtabi agad ng ₱500 para sa emergency fund!"
+        )
+        assertTrue(MotionHtmlDirector.shouldRenderAsHuman(humanStoryScene2))
+        val explicitChickenScene = humanStoryScene2.copy(
+            tagalogNarration = "Ang kuwento ng matalinong manok sa bukid!"
+        )
+        assertFalse(MotionHtmlDirector.shouldRenderAsHuman(explicitChickenScene))
+
+        val locked = MotionHtmlDirector.resolveLockedProfiles(listOf(humanStoryScene1, humanStoryScene2))
+        assertEquals(CharacterGender.FEMALE, locked[ActorRole.HERO]?.gender)
+        assertEquals("#E11D48", locked[ActorRole.HERO]?.outfitColorHex)
+
+        // 5. Viral 1-2 word caption chunking + crimson/yellow tone classification
+        val chunks = MotionHtmlDirector.buildViralCaptionChunks(
+            wordTimings = listOf(
+                WordTiming("ubos", 0.0, 300.0),
+                WordTiming("ang", 300.0, 500.0),
+                WordTiming("₱500", 500.0, 900.0),
+                WordTiming("ipon", 900.0, 1300.0)
+            ),
+            fallbackNarration = "",
+            sceneStartMs = 0.0,
+            sceneEndMs = 1500.0
+        )
+        assertEquals(2, chunks.size)
+        assertTrue(chunks.all { it.tokens.size in 1..2 })
+        assertEquals("UBOS", chunks[0].tokens[0].text)
+        assertEquals(ViralCaptionTone.DANGER, chunks[0].tokens[0].tone)
+        assertEquals("₱500", chunks[1].tokens[0].text)
+        assertEquals(ViralCaptionTone.ACCENT, chunks[1].tokens[0].tone)
+
+        // 6. Deterministic HTML5/SVG document generation with seekToTime & XSS escaping
+        val timelineScenes = listOf(
+            TimelineScene(
+                scene = humanStoryScene1.copy(calloutBanner = "UBOS </script> SAHOD?"),
+                startMs = 0.0,
+                endMs = 3000.0,
+                wordTimings = emptyList()
+            )
+        )
+        val html = MotionHtmlDirector.buildHtmlDocument(
+            scenes = timelineScenes,
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+            totalDurationMs = 3000.0
+        )
+        assertTrue(html.contains("window.seekToTime = function(seconds)"))
+        assertTrue(html.contains("viewBox=\"0 0 1080 1920\""))
+        assertTrue(html.contains("transform=\"translate(540, 1420)\""))
+        assertTrue(html.contains("#FFD60A"))
+        assertTrue(html.contains("#FF453A"))
+        assertTrue(html.contains("#0B0E14"))
+        assertFalse(html.contains("UBOS </script>"))
     }
 }

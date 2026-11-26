@@ -109,6 +109,17 @@ import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
 import com.example.model.WorldFx
+import android.annotation.SuppressLint
+import android.graphics.Color as AndroidColor
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import com.example.render.MotionHtmlDirector
 import com.example.render.SceneCompositor
 import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
@@ -572,10 +583,10 @@ fun StudioScreen(
             }
             }
 
-            // 3. HORIZONTAL ANIMATION STYLE PRESET CARDS
+            // 3. HORIZONTAL ANIMATION STYLE PRESET CARDS (4 Viral 2D & 2.5D Motion Presets)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Animation Style Preset (${AnimationStyle.entries.size} Engines)",
+                    text = "Animation Style Preset (${AnimationStyle.STUDIO_VIRAL_PRESETS.size} Motion Engines)",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(horizontal = 2.dp)
                 )
@@ -583,7 +594,7 @@ fun StudioScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(horizontal = 2.dp)
                 ) {
-                    items(AnimationStyle.entries) { style ->
+                    items(AnimationStyle.STUDIO_VIRAL_PRESETS) { style ->
                         val isSelected = style == selectedStyle
                         Card(
                             modifier = Modifier
@@ -1435,7 +1446,7 @@ private fun LiveCanvasPreviewCard(
                 }
             }
 
-            // 9:16 Live Preview Viewport
+            // 9:16 Live Preview Viewport (HTML5/SVG Motion Engine for 2D/2.5D presets, Canvas fallback for Clip Auto-HUD)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.68f)
@@ -1444,20 +1455,36 @@ private fun LiveCanvasPreviewCard(
                     .clip(RoundedCornerShape(16.dp))
                     .border(2.dp, selectedStyle.accentColor.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawIntoCanvas { canvas ->
-                        SceneCompositor.drawFrame(
-                            canvas = canvas.nativeCanvas,
-                            width = size.width,
-                            height = size.height,
+                if (productionMode == ProductionMode.CLIP_AUTO_EDITOR) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawIntoCanvas { canvas ->
+                            SceneCompositor.drawFrame(
+                                canvas = canvas.nativeCanvas,
+                                width = size.width,
+                                height = size.height,
+                                scenes = activeScenes,
+                                style = selectedStyle,
+                                currentMs = previewTimeMs,
+                                fallbackBackdropCache = viewModel.previewBackdropCache,
+                                productionMode = productionMode,
+                                customSprites = customSprites
+                            )
+                        }
+                    }
+                } else {
+                    val previewHtml = remember(activeScenes, selectedStyle, totalDurMs) {
+                        MotionHtmlDirector.buildHtmlDocument(
                             scenes = activeScenes,
                             style = selectedStyle,
-                            currentMs = previewTimeMs,
-                            fallbackBackdropCache = viewModel.previewBackdropCache,
-                            productionMode = productionMode,
-                            customSprites = customSprites
+                            totalDurationMs = totalDurMs,
+                            includeAiBackdrops = false
                         )
                     }
+                    MotionWebViewPreview(
+                        htmlDocument = previewHtml,
+                        currentSeconds = previewTimeMs / 1000.0,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 
@@ -1576,6 +1603,78 @@ private fun LiveCanvasPreviewCard(
             }
         }
     }
+}
+
+@SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
+@Composable
+private fun MotionWebViewPreview(
+    htmlDocument: String,
+    currentSeconds: Double,
+    modifier: Modifier = Modifier
+) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var lastLoadedHtml by remember { mutableStateOf("") }
+    var pageReady by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.let { wv ->
+                runCatching {
+                    (wv.parent as? ViewGroup)?.removeView(wv)
+                    wv.stopLoading()
+                    wv.destroy()
+                }
+            }
+            webViewRef = null
+        }
+    }
+
+    AndroidView(
+        modifier = modifier.testTag("motion_webview_preview"),
+        factory = { ctx ->
+            WebView(ctx).apply {
+                setBackgroundColor(AndroidColor.parseColor("#080B12"))
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                setOnTouchListener { _, event ->
+                    event.action == MotionEvent.ACTION_MOVE
+                }
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = false
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    cacheMode = WebSettings.LOAD_NO_CACHE
+                    builtInZoomControls = false
+                    displayZoomControls = false
+                }
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        pageReady = true
+                        val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
+                        view?.evaluateJavascript("if (window.seekToTime) window.seekToTime($secStr);", null)
+                    }
+                }
+                webViewRef = this
+                lastLoadedHtml = htmlDocument
+                pageReady = false
+                loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
+            }
+        },
+        update = { wv ->
+            if (lastLoadedHtml != htmlDocument) {
+                lastLoadedHtml = htmlDocument
+                pageReady = false
+                wv.loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
+            } else if (pageReady) {
+                val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
+                wv.evaluateJavascript("if (window.seekToTime) window.seekToTime($secStr);", null)
+            }
+        }
+    )
 }
 
 @Composable

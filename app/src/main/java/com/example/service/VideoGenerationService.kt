@@ -35,6 +35,8 @@ import com.example.model.WordTiming
 import com.example.render.CharacterSpriteProcessor
 import com.example.render.DeterministicVideoExporter
 import com.example.render.ExternalClipFrameSource
+import com.example.render.MotionHtmlDirector
+import com.example.render.WebViewFrameRenderer
 import com.example.tts.AudioPcmStitcher
 import com.example.tts.ElevenLabsClient
 import kotlinx.coroutines.CancellationException
@@ -91,9 +93,9 @@ class VideoGenerationService : Service() {
             }
             ACTION_START -> {
                 val topic = intent.getStringExtra(EXTRA_TOPIC).orEmpty().trim()
-                val styleName = intent.getStringExtra(EXTRA_STYLE) ?: AnimationStyle.PAPER_DIORAMA.name
+                val styleName = intent.getStringExtra(EXTRA_STYLE) ?: AnimationStyle.ATMOSPHERIC_2D_STORY.name
                 val style = AnimationStyle.entries.firstOrNull { it.name == styleName }
-                    ?: AnimationStyle.PAPER_DIORAMA
+                    ?: AnimationStyle.ATMOSPHERIC_2D_STORY
                 val durationSec = intent.getIntExtra(EXTRA_DURATION_SEC, 30)
                 val voiceId = intent.getStringExtra(EXTRA_VOICE_ID).orEmpty()
                 val productionMode = ProductionMode.fromRaw(intent.getStringExtra(EXTRA_PRODUCTION_MODE))
@@ -175,6 +177,7 @@ class VideoGenerationService : Service() {
         val renderBackdrops = mutableListOf<Bitmap>()
         var customSprites: Map<ActorRole, Bitmap> = emptyMap()
         var externalClipFrameSource: ExternalClipFrameSource? = null
+        var webViewFrameRenderer: WebViewFrameRenderer? = null
 
         try {
             val settingsStore = SettingsDataStore(applicationContext)
@@ -425,17 +428,13 @@ class VideoGenerationService : Service() {
                         sceneCount = scenes.size
                     )
                 }
-            } else {
+            } else if (settings.enableAiBackgroundArt && style.usesNetworkArt) {
                 val imageClient = AiHordeImageClient()
                 val useAiHordeForArt = activeScriptMode == ScriptSourceMode.AI_HORDE
-                val artBatchStartMsg = if (style.usesNetworkArt) {
-                    if (useAiHordeForArt) {
-                        "Generating ${scenes.size} ${style.badge} backdrops via AI Horde..."
-                    } else {
-                        "Fetching ${scenes.size} ${style.badge} diorama backdrops in parallel..."
-                    }
+                val artBatchStartMsg = if (useAiHordeForArt) {
+                    "Generating ${scenes.size} empty-stage ${style.badge} backdrops via AI Horde..."
                 } else {
-                    "Generating ${scenes.size} offline ${style.badge} stages..."
+                    "Fetching ${scenes.size} empty-stage ${style.badge} backdrops in parallel..."
                 }
                 publish(
                     PipelineStep.ART,
@@ -454,14 +453,10 @@ class VideoGenerationService : Service() {
                     preferAiHordeDirect = useAiHordeForArt
                 ) { doneCount, totalCount ->
                     val frac = doneCount.toFloat() / totalCount.coerceAtLeast(1).toFloat()
-                    val label = if (style.usesNetworkArt) {
-                        if (useAiHordeForArt) {
-                            "AI Horde generated/rendered backdrop ($doneCount/$totalCount)..."
-                        } else {
-                            "Downloaded/rendered backdrop ($doneCount/$totalCount)..."
-                        }
+                    val label = if (useAiHordeForArt) {
+                        "AI Horde generated empty-stage backdrop ($doneCount/$totalCount)..."
                     } else {
-                        "Prepared offline stage ($doneCount/$totalCount)..."
+                        "Downloaded empty-stage backdrop ($doneCount/$totalCount)..."
                     }
                     publish(
                         PipelineStep.ART,
@@ -502,6 +497,39 @@ class VideoGenerationService : Service() {
                         )
                     )
                 }
+            } else {
+                // Default pure multi-layered 2D / 2.5D vector SVG scenery (fast, zero image hallucinations)
+                publish(
+                    PipelineStep.ART,
+                    0.5f,
+                    0.52f,
+                    "Building ${scenes.size} multi-layer 2D/2.5D vector SVG scenes...",
+                    sceneIdx = scenes.size,
+                    sceneCount = scenes.size
+                )
+                scenes.forEachIndexed { idx, scene ->
+                    currentCoroutineContext().ensureActive()
+                    val startMs = stitchedAudio.sceneStartMs[idx]
+                    val endMs = stitchedAudio.sceneEndMs[idx]
+                    val wordTimings = stitchedAudio.sceneWordTimings[idx]
+                    val ts = TimelineScene(
+                        scene = scene,
+                        startMs = startMs,
+                        endMs = endMs,
+                        wordTimings = wordTimings,
+                        backdropBitmap = null
+                    )
+                    timelineScenes.add(ts)
+                    previewScenes.add(ts)
+                }
+                publish(
+                    PipelineStep.ART,
+                    1.0f,
+                    0.64f,
+                    "Prepared ${scenes.size} vector SVG motion scenes",
+                    sceneIdx = scenes.size,
+                    sceneCount = scenes.size
+                )
             }
 
             PipelineProgressBus.update { cur ->
@@ -522,6 +550,34 @@ class VideoGenerationService : Service() {
                 .take(24)
                 .ifBlank { "story" }
             val fileName = "ToonForge_${slug}_$stamp.mp4"
+
+            val useWebViewMotionEngine = !(productionMode == ProductionMode.CLIP_AUTO_EDITOR && importedClipUris.isNotEmpty())
+            val frameProvider: (suspend (Int, Double, Bitmap) -> Boolean)? = if (useWebViewMotionEngine) {
+                publish(
+                    PipelineStep.PUPPET_RENDER,
+                    0.02f,
+                    0.64f,
+                    "Booting 1080x1920 HTML5/SVG Motion Engine..."
+                )
+                val htmlDoc = MotionHtmlDirector.buildHtmlDocument(
+                    scenes = timelineScenes,
+                    style = style,
+                    totalDurationMs = stitchedAudio.totalDurationMs,
+                    includeAiBackdrops = settings.enableAiBackgroundArt
+                )
+                val renderer = WebViewFrameRenderer.create(
+                    context = applicationContext,
+                    htmlDocument = htmlDoc,
+                    width = DeterministicVideoExporter.VIDEO_WIDTH,
+                    height = DeterministicVideoExporter.VIDEO_HEIGHT
+                )
+                webViewFrameRenderer = renderer
+                { _, currentMs, targetBitmap ->
+                    renderer.renderFrameAt(currentMs / 1000.0, targetBitmap)
+                }
+            } else {
+                null
+            }
 
             val exporter = DeterministicVideoExporter(galleryRepo)
             val exportRes = exporter.exportToMediaStore(
@@ -549,7 +605,8 @@ class VideoGenerationService : Service() {
                 },
                 productionMode = productionMode,
                 customSprites = customSprites,
-                externalClipFrameSource = externalClipFrameSource
+                externalClipFrameSource = externalClipFrameSource,
+                frameBitmapProvider = frameProvider
             )
 
             PipelineProgressBus.update { cur ->
@@ -596,6 +653,8 @@ class VideoGenerationService : Service() {
                 runCatching { if (!bmp.isRecycled) bmp.recycle() }
             }
             customSprites = emptyMap()
+            runCatching { webViewFrameRenderer?.close() }
+            webViewFrameRenderer = null
             runCatching { externalClipFrameSource?.close() }
             runCatching { tempWorkDir.deleteRecursively() }
             runCatching {

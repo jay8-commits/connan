@@ -329,6 +329,40 @@ fun SettingsScreen(
                             .testTag("aihorde_api_key_input"),
                         colors = studioTextFieldColors()
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 12.dp)
+                        ) {
+                            Text(
+                                text = "Optional AI Background Art",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (settings.enableAiBackgroundArt) {
+                                    "Enabled: fetches empty-stage backdrops (NO people/characters) behind vector actors."
+                                } else {
+                                    "Off (Default): renders crisp multi-layer 2D/2.5D vector SVG scenery with zero background artifacts."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.enableAiBackgroundArt,
+                            onCheckedChange = { checked ->
+                                viewModel.setEnableAiBackgroundArt(checked)
+                            },
+                            modifier = Modifier.testTag("enable_ai_background_art_switch")
+                        )
+                    }
                 }
             }
 

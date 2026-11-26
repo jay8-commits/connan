@@ -99,11 +99,11 @@ object DirectStoryboardParser {
       "camera_motion": "PAN_RIGHT",
       "character_pose": "THREE_QUARTER_EXPLAIN",
       "shot_framing": "RULE_OF_THIRDS_LEFT",
-      "actor_role": "CHICKEN_MENTOR",
+      "actor_role": "HERO",
       "actor_action": "TALK_BOUNCE",
       "world_fx": "CHALKBOARD_DRAW",
-      "character_outfit": "OFFICE_SUIT",
-      "outfit_color_hex": "#10B981",
+      "character_outfit": "HOODIE",
+      "outfit_color_hex": "#3B82F6",
       "hand_prop": "BOOK_NOTEBOOK",
       "status_pill": "FIX",
       "callout_banner": "PAY YOURSELF FIRST",
@@ -239,6 +239,12 @@ object DirectStoryboardParser {
             "Tagalog script has no speakable lines. Paste at least one Tagalog sentence."
         }
 
+        val lockedGender = com.example.model.CharacterGender.MALE
+        val lockedAge = com.example.model.CharacterAge.YOUNG_ADULT
+        val lockedOutfit = com.example.model.CharacterOutfit.HOODIE
+        val lockedOutfitHex = "#2563EB"
+        val lockedHairHex = "#1E293B"
+
         return chunks.mapIndexed { idx, rawChunk ->
             val cleanNarration = TagalogNarrationValidator.cleanForTts(rawChunk)
                 .ifBlank { rawChunk.trim() }
@@ -271,6 +277,11 @@ object DirectStoryboardParser {
                 handProp = contextCue.handProp,
                 expression = expression,
                 environmentTheme = contextCue.environmentTheme,
+                characterGender = lockedGender,
+                characterAge = lockedAge,
+                characterOutfit = lockedOutfit,
+                outfitColorHex = lockedOutfitHex,
+                hairColorHex = lockedHairHex,
                 visualDescription = visualDesc
             )
         }
@@ -558,7 +569,7 @@ object DirectStoryboardParser {
         val role = when {
             isSolution && isFinance -> ActorRole.RICH_MAN
             isProblem -> ActorRole.POOR_MAN
-            index % 3 == 1 -> ActorRole.CHICKEN_MENTOR
+            index % 3 == 1 -> ActorRole.NARRATOR
             else -> ActorRole.HERO
         }
 

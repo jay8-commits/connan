@@ -54,6 +54,7 @@ class SettingsDataStore(private val context: Context) {
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val DETECTED_CHAT_BASE_URL = stringPreferencesKey("detected_chat_base_url")
         val NARRATION_SPEED = floatPreferencesKey("narration_speed")
+        val ENABLE_AI_BACKGROUND_ART = booleanPreferencesKey("enable_ai_background_art")
     }
 
     private fun cleanCredential(raw: String?): String =
@@ -107,7 +108,8 @@ class SettingsDataStore(private val context: Context) {
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH] ?: "",
             customBgmName = prefs[Keys.CUSTOM_BGM_NAME] ?: "",
             pronunciationDictionary = parsePronunciationDict(prefs[Keys.PRONUNCIATION_DICT_JSON]),
-            narrationSpeed = (prefs[Keys.NARRATION_SPEED] ?: 1.0f).coerceIn(0.85f, 1.15f)
+            narrationSpeed = (prefs[Keys.NARRATION_SPEED] ?: 1.0f).coerceIn(0.85f, 1.15f),
+            enableAiBackgroundArt = prefs[Keys.ENABLE_AI_BACKGROUND_ART] ?: false
         )
     }
 
@@ -324,6 +326,12 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setNarrationSpeed(speed: Float) {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.NARRATION_SPEED] = speed.coerceIn(0.85f, 1.15f)
+        }
+    }
+
+    suspend fun setEnableAiBackgroundArt(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.ENABLE_AI_BACKGROUND_ART] = enabled
         }
     }
 

@@ -68,7 +68,8 @@ class DeterministicVideoExporter(
         onMuxProgress: (String) -> Unit,
         productionMode: ProductionMode = ProductionMode.FULL_AI_STORY,
         customSprites: Map<ActorRole, Bitmap> = emptyMap(),
-        externalClipFrameSource: ExternalClipFrameSource? = null
+        externalClipFrameSource: ExternalClipFrameSource? = null,
+        frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null
     ): ExportResult = withContext(Dispatchers.Default) {
         val totalFrames = ceil((totalDurationMs / 1000.0) * VIDEO_FPS).toInt().coerceAtLeast(30)
         val tempMp4File = File(tempCacheDir, "render_${UUID.randomUUID()}.mp4")
@@ -279,20 +280,23 @@ class DeterministicVideoExporter(
 
                 val currentMs = frameIndex * (1000.0 / VIDEO_FPS.toDouble())
                 frameBitmap.eraseColor(android.graphics.Color.BLACK)
-                SceneCompositor.drawFrame(
-                    canvas = frameCanvas,
-                    width = VIDEO_WIDTH.toFloat(),
-                    height = VIDEO_HEIGHT.toFloat(),
-                    scenes = scenes,
-                    style = style,
-                    currentMs = currentMs,
-                    fallbackBackdropCache = fallbackBackdropCache,
-                    productionMode = productionMode,
-                    customSprites = customSprites,
-                    externalClipFrameProvider = externalClipFrameSource?.let { source ->
-                        { sceneIdx, localMs -> source.getFrameBitmap(sceneIdx, localMs) }
-                    }
-                )
+                val renderedCustom = frameBitmapProvider?.invoke(frameIndex, currentMs, frameBitmap) == true
+                if (!renderedCustom) {
+                    SceneCompositor.drawFrame(
+                        canvas = frameCanvas,
+                        width = VIDEO_WIDTH.toFloat(),
+                        height = VIDEO_HEIGHT.toFloat(),
+                        scenes = scenes,
+                        style = style,
+                        currentMs = currentMs,
+                        fallbackBackdropCache = fallbackBackdropCache,
+                        productionMode = productionMode,
+                        customSprites = customSprites,
+                        externalClipFrameProvider = externalClipFrameSource?.let { source ->
+                            { sceneIdx, localMs -> source.getFrameBitmap(sceneIdx, localMs) }
+                        }
+                    )
+                }
 
                 GLES20.glViewport(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT)
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)

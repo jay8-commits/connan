@@ -48,10 +48,19 @@ class AiHordeImageClient(
         const val MAX_CONCURRENT_JOBS = 2
         const val PRIMARY_MAX_RETRIES = 3
         val PRIMARY_BACKOFF_MS = longArrayOf(700L, 1600L)
+        const val NO_PEOPLE_STAGE_SUFFIX =
+            "empty foreground stage, background scenery only, NO people, NO humans, NO characters, NO faces"
 
         fun buildPollinationsUrl(prompt: String): String {
             val encoded = URLEncoder.encode(prompt.trim(), Charsets.UTF_8.name())
             return "https://image.pollinations.ai/prompt/$encoded?width=540&height=960&model=flux&nologo=true"
+        }
+
+        fun buildEmptyStagePrompt(scenePrompt: String, style: AnimationStyle): String {
+            val base = listOf(scenePrompt.trim(), style.backdropPromptSuffix.trim(), NO_PEOPLE_STAGE_SUFFIX)
+                .filter { it.isNotBlank() }
+                .joinToString(", ")
+            return base
         }
     }
 
@@ -112,7 +121,7 @@ class AiHordeImageClient(
         environmentTheme: EnvironmentTheme? = null,
         preferAiHordeDirect: Boolean = false
     ): BackdropResult = withContext(Dispatchers.IO) {
-        // Stickman Whiteboard & 2D Viral Explainer skip cloud image calls for crisp procedural 2D stages
+        // Stickman Whiteboard & pure SVG/2D presets skip cloud image calls for crisp procedural 2D stages
         if (!style.usesNetworkArt) {
             return@withContext BackdropResult(
                 bitmap = ProceduralBackdropGenerator.generate(
@@ -127,7 +136,7 @@ class AiHordeImageClient(
             )
         }
 
-        val fullPrompt = "$scenePrompt, ${style.backdropPromptSuffix}"
+        val fullPrompt = buildEmptyStagePrompt(scenePrompt, style)
         val cleanHordeKey = aiHordeApiKey.replace("\r", "").replace("\n", "").trim().ifBlank { "0000000000" }
         val decoded = if (preferAiHordeDirect) {
             // AI Horde Mode ON: route scene art directly to AI Horde async workers

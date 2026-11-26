@@ -85,7 +85,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _productionMode = MutableStateFlow(ProductionMode.FULL_AI_STORY)
     val productionMode: StateFlow<ProductionMode> = _productionMode.asStateFlow()
 
-    private val _selectedStyle = MutableStateFlow(AnimationStyle.PAPER_DIORAMA)
+    private val _selectedStyle = MutableStateFlow(AnimationStyle.ATMOSPHERIC_2D_STORY)
     val selectedStyle: StateFlow<AnimationStyle> = _selectedStyle.asStateFlow()
 
     private val _importedClips = MutableStateFlow<List<ImportedClipItem>>(emptyList())
@@ -266,7 +266,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (mode == ProductionMode.CROSS_SECTION_EXPLAINER) {
             _selectedStyle.value = AnimationStyle.CROSS_SECTION
         } else if (mode == ProductionMode.FULL_AI_STORY && _selectedStyle.value == AnimationStyle.CROSS_SECTION) {
-            _selectedStyle.value = AnimationStyle.PAPER_DIORAMA
+            _selectedStyle.value = AnimationStyle.ATMOSPHERIC_2D_STORY
         }
         previewBackdropCache.clear()
     }
@@ -1022,6 +1022,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAiHordeKey(apiKey: String) {
         viewModelScope.launch {
             settingsStore.setAiHordeKey(apiKey)
+        }
+    }
+
+    fun setEnableAiBackgroundArt(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsStore.setEnableAiBackgroundArt(enabled)
+            showMessage(
+                if (enabled) "Optional AI Background Art enabled (empty stage, no people)"
+                else "Using pure multi-layer 2D/2.5D vector SVG scenery"
+            )
         }
     }
 

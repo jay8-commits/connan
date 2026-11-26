@@ -93,7 +93,9 @@ Do NOT output any prose, explanation, markdown fences, or <think> tags outside t
 TOPIC-FIRST DECOUPLING CONTRACT (CRITICAL ARCHITECTURE RULE):
 - "${style.displayName}" defines ONLY the visual rendering aesthetic and camera feel—NEVER the story characters, props, or subject matter!
 - 100% of characters, settings, diagram labels, cutaway subjects, and visual metaphors MUST come dynamically from the user's topic or imported prompt.
-- FORBIDDEN GENERIC BIAS: NEVER insert unrelated skin wounds, "PROTEIN CHAIN", chicken mentors, or top-hat men unless the user's topic actually mentions skin wounds, protein, chickens, or wealthy top-hat tycoons.
+- CHARACTER CONSISTENCY LOCK (MANDATORY): Keep the SAME character_gender, character_age, character_outfit, outfit_color_hex, and hair_color_hex for the main character across EVERY scene in the story. Never swap genders, outfits, or species mid-story!
+- BANNED SUBSTITUTIONS: NEVER substitute human speakers/mentors with chicken or animal mascots (unless the story is explicitly about an animal). Prefer NARRATOR, HERO, RICH_MAN, or POOR_MAN for all human characters.
+- CLEAN STAGE & DIAGRAM GUARDRAILS: Never generate floating capsule/confetti debris across floors or skies. Never place callout labels or pointer arrows over a character's head, hair, or face.
 
 STRICT NATURAL TAGALOG LANGUAGE RULES (MANDATORY):
 - Write grammatically correct, everyday conversational Tagalog/Taglish that sounds like a real Filipino storyteller—never stiff or robotic Google Translate phrasing.
@@ -109,9 +111,9 @@ Every object inside "scenes" MUST have ALL required keys with exact names:
 - "scene_id": integer starting at 1
 - "tagalog_narration": string (natural conversational Tagalog/Taglish, MINIMUM 11 words and MINIMUM 60 characters per scene, no stage directions or speaker labels)
 - "visual_description": string (MINIMUM 18 words in vivid English explicitly detailing ALL 4 items: 1. main subject & exact action/pose, 2. facial expression & hand prop, 3. specific environment/foreground/background elements, 4. lighting/atmosphere; NEVER use "generic", "simple background", or "etc")
-- "background_prompt": string (vivid English background diorama description matching "${style.displayName}" aesthetic and time of day, no text, no people)
+- "background_prompt": string (vivid English background scenery description matching "${style.displayName}" aesthetic and time of day, empty foreground stage, background scenery only, NO people, NO humans, NO characters, NO faces)
 - "camera_motion": strictly one of ZOOM_IN | ZOOM_OUT | PAN_LEFT | PAN_RIGHT | TRACKING_FOLLOW | IMPACT_SHAKE | WHIP_PAN_LEFT | WHIP_PAN_RIGHT | SHAKE (NEVER "STATIC" or repeating the previous scene's motion!)
-- "actor_role": strictly one of NARRATOR | HERO | RICH_MAN | POOR_MAN | CHICKEN_MENTOR (prefer "NARRATOR" or "HERO" paired with character_outfit/gender/age for everyday people!)
+- "actor_role": strictly one of NARRATOR | HERO | RICH_MAN | POOR_MAN (do NOT assign CHICKEN_MENTOR for human characters!)
 - "actor_action": strictly one of WALK_IN | TALK_BOUNCE | THUMBS_UP | POINT_STICK | SURPRISED_JUMP | CRY_SHAKE
 - "world_fx": strictly one of NONE | COIN_RAIN | FIRE_SPARKS | CHALKBOARD_DRAW
 
@@ -127,7 +129,7 @@ Optional cinematic, wardrobe, cutaway & data-driven diagram keys per scene objec
 - "character_pose": one of WALK_ACROSS_LEFT_TO_RIGHT | THREE_QUARTER_EXPLAIN | SIT_SLUMPED | SHOCK_AIRBORNE_RECOIL | POINT_AND_GESTURE | CELEBRATE_JUMP | TWO_CHARACTER_CONVERSATION (NEVER repeat the previous scene's pose!)
 - "hand_prop": one of NONE | POINTER_STICK | MONEY_BAG | PHONE_SCREEN | COFFEE_CUP | BASKET_GOODS | BOOK_NOTEBOOK | TOOL_WRENCH | MAGNIFYING_GLASS | LIGHTBULB
 - "shot_type": one of WIDE_STAGE | MEDIUM_WAIST_UP | CLOSE_UP_REACTION | TRACKING_FOLLOW | WHIP_CUT
-- "secondary_actor_role": optional partner role for TWO_CHARACTER_CONVERSATION (HERO | NARRATOR | RICH_MAN | POOR_MAN | CHICKEN_MENTOR)
+- "secondary_actor_role": optional human partner role for TWO_CHARACTER_CONVERSATION (HERO | NARRATOR | RICH_MAN | POOR_MAN)
 - "expression": one of HAPPY_TALK | ANGRY_EVIL | PANIC_SWEAT_FIRE | SHOCKED_WIDE_EYES | TONGUE_STING | SLEEPING_ZZZ
 - "headgear": one of NONE | CHEF_HAT | HARD_HAT | CROWN
 - "diagram_type": one of NONE | BEFORE_AFTER_SPLIT | STEP_FLOW_ARROWS | METER_GAUGE_SHIFT | SCALE_WEIGH_OFF | SUNBURST_HERO_CALLOUT

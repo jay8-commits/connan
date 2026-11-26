@@ -11,14 +11,41 @@ enum class AnimationStyle(
     val usesNetworkArt: Boolean,
     val captionStyleLabel: String
 ) {
+    ATMOSPHERIC_2D_STORY(
+        displayName = "Atmospheric 2D Vector Story",
+        badge = "CINEMATIC 2D",
+        subtitle = "Shaded 2D rooms, light shafts, dust motes & expressive vector casts",
+        accentHex = 0xFFFFB703,
+        backdropPromptSuffix = "atmospheric 2D vector storytelling stage, dramatic angled light shafts, warm rim shadows, architectural depth, no text, no people, empty stage, centered composition",
+        usesNetworkArt = false,
+        captionStyleLabel = "1–2 word yellow & crimson punch"
+    ),
+    STYLIZED_25D_EXPLAINER(
+        displayName = "2.5D Stylized Vector Explainer",
+        badge = "2.5D VECTOR",
+        subtitle = "Low-poly layered SVG hills, 3-plane parallax & clean vector cast",
+        accentHex = 0xFF2DD4BF,
+        backdropPromptSuffix = "clean 2.5D stylized layered vector explainer backdrop, faceted hills and perspective depth, crisp studio lighting, no text, no people, empty stage, centered composition",
+        usesNetworkArt = false,
+        captionStyleLabel = "1–2 word yellow & crimson punch"
+    ),
     PAPER_DIORAMA(
-        displayName = "2.5D Paper-Cut Diorama",
+        displayName = "Paper Cut-Out & Diorama",
         badge = "DIORAMA",
-        subtitle = "Tilt-shift miniature stages, 10px cutouts, whip-pans",
+        subtitle = "Textured paper layers, crisp drop shadows & brass split-pin pivots",
         accentHex = 0xFFFF5E36,
         backdropPromptSuffix = "stylized 3D miniature paper-cut diorama set, layered craft paper depth, soft studio lighting, tilt-shift bokeh, no text, no people, empty stage, centered composition",
         usesNetworkArt = true,
-        captionStyleLabel = "Bold white + thick black stroke"
+        captionStyleLabel = "1–2 word yellow & crimson punch"
+    ),
+    KINETIC_TYPOGRAPHY_DIAGRAM(
+        displayName = "Kinetic Typography & Diagram",
+        badge = "KINETIC + DIAGRAM",
+        subtitle = "Swiss grids, animated SVG counters & glowing callout brackets",
+        accentHex = 0xFF00E5FF,
+        backdropPromptSuffix = "clean Swiss grid motion graphics stage, dark architectural slate with subtle grid hairlines, no text, no people, empty stage, centered composition",
+        usesNetworkArt = false,
+        captionStyleLabel = "1–2 word yellow & crimson punch"
     ),
     STICKMAN_WHITEBOARD(
         displayName = "Stickman Whiteboard Explainer",
@@ -95,4 +122,13 @@ enum class AnimationStyle(
 
     val accentColor: Color
         get() = Color(accentHex)
+
+    companion object {
+        val STUDIO_VIRAL_PRESETS: List<AnimationStyle> = listOf(
+            ATMOSPHERIC_2D_STORY,
+            STYLIZED_25D_EXPLAINER,
+            PAPER_DIORAMA,
+            KINETIC_TYPOGRAPHY_DIAGRAM
+        )
+    }
 }

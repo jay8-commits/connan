@@ -213,6 +213,9 @@ enum class HandProp {
             val clean = raw?.trim()?.uppercase() ?: return NONE
             return when (clean) {
                 "EGG_BASKET" -> BASKET_GOODS
+                "WALLET_CASH", "WALLET", "CASH" -> MONEY_BAG
+                "DOCUMENT_PAPER", "DOCUMENT", "PAPER" -> BOOK_NOTEBOOK
+                "PHONE", "SMARTPHONE" -> PHONE_SCREEN
                 else -> entries.firstOrNull { it.name == clean } ?: NONE
             }
         }
@@ -553,7 +556,8 @@ data class StudioSettings(
     val customBgmPath: String = "",
     val customBgmName: String = "",
     val pronunciationDictionary: List<PronunciationEntry> = emptyList(),
-    val narrationSpeed: Float = 1.0f
+    val narrationSpeed: Float = 1.0f,
+    val enableAiBackgroundArt: Boolean = false
 ) {
     val activeTemplate: PromptTemplate?
         get() = promptTemplates.firstOrNull { it.id == activePromptId } ?: promptTemplates.firstOrNull()
