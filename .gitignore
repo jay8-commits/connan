@@ -1,0 +1,41 @@
+# Build outputs & binaries
+.build-outputs/
+/build/
+build/
+/app/build/
+*.apk
+*.ap_
+*.aab
+
+# Gradle & Kotlin caches
+.gradle/
+.kotlin/
+*.iml
+
+# Local configuration & secrets
+local.properties
+/local.properties
+.env
+debug.keystore
+my-upload-key.jks
+*.jks
+*.keystore
+!debug.keystore.base64
+
+# Android Studio / IntelliJ IDE files
+.idea/
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+
+# Native & captures
+/captures
+.externalNativeBuild
+.cxx
+
+# OS files
+.DS_Store
+Thumbs.db
