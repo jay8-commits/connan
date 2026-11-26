@@ -122,11 +122,12 @@
 
   <g clip-path="url(#stage-clip)">
     <g id="camera-root">
-      <image id="ai-backdrop-img" x="-80" y="-120" width="1240" height="2160" preserveAspectRatio="xMidYMid slice" opacity="0" />
+      <image id="ai-backdrop-img" x="-54" y="-96" width="1188" height="2112" preserveAspectRatio="xMidYMid slice" opacity="0" />
       <g id="sky-layer"></g>
       <g id="weather-layer"></g>
       <g id="surface-layer"></g>
       <g id="underground-layer"></g>
+      <g id="custom-svg-layer"></g>
       <g id="flow-engine-layer"></g>
       <g id="pointer-layer"></g>
       <g id="cast-layer"></g>
@@ -162,6 +163,7 @@
   const elWeather = document.getElementById("weather-layer");
   const elSurface = document.getElementById("surface-layer");
   const elUnderground = document.getElementById("underground-layer");
+  const elCustomSvg = document.getElementById("custom-svg-layer");
   const elFlow = document.getElementById("flow-engine-layer");
   const elPointers = document.getElementById("pointer-layer");
   const elCast = document.getElementById("cast-layer");
@@ -213,31 +215,66 @@
     return "SUNNY";
   }
 
+  function injectCustomSvg(svgText) {
+    clearNode(elCustomSvg);
+    if (!svgText) return false;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, "image/svg+xml");
+      const root = doc && doc.documentElement;
+      if (!root || root.nodeName.toLowerCase() === "parsererror") return false;
+      const imported = document.importNode(root, true);
+      imported.setAttribute("x", "0");
+      imported.setAttribute("y", "0");
+      imported.setAttribute("width", "1080");
+      imported.setAttribute("height", "1920");
+      if (!imported.getAttribute("viewBox")) {
+        imported.setAttribute("viewBox", "0 0 1080 1920");
+      }
+      if (!imported.getAttribute("preserveAspectRatio")) {
+        imported.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      }
+      if (typeof imported.pauseAnimations === "function") {
+        try { imported.pauseAnimations(); } catch (e) {}
+      }
+      elCustomSvg.appendChild(imported);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function renderCutawayStage(scene) {
     clearNode(elSky);
     clearNode(elSurface);
     clearNode(elUnderground);
+    clearNode(elCustomSvg);
     clearNode(elCast);
+
+    const hasCustomSvg = !!(scene.customSvg && scene.customSvg.trim().length > 0 && injectCustomSvg(scene.customSvg));
+    const hasBackdrop = !hasCustomSvg && !!(scene.backdropUri && scene.backdropUri.trim().length > 0);
+
+    if (hasCustomSvg) {
+      elBackdropImg.setAttribute("opacity", "0");
+      elBackdropImg.removeAttribute("href");
+      svgEl("rect", { x: -120, y: -120, width: 1320, height: 2160, fill: "#070B12" }, elSky);
+      return;
+    }
+
+    if (hasBackdrop) {
+      elBackdropImg.setAttribute("href", scene.backdropUri);
+      elBackdropImg.setAttribute("opacity", "1");
+      return;
+    }
+
+    elBackdropImg.setAttribute("opacity", "0");
+    elBackdropImg.removeAttribute("href");
 
     const lighting = resolveLighting(scene);
     const skyFill = lighting === "NIGHT" ? "url(#sky-night)" : (lighting === "RAIN_STORM" ? "url(#sky-storm)" : "url(#sky-sunny)");
 
-    if (scene.backdropUri) {
-      elBackdropImg.setAttribute("href", scene.backdropUri);
-      elBackdropImg.setAttribute("opacity", "0.24");
-    } else {
-      elBackdropImg.setAttribute("opacity", "0");
-    }
-
-    // 1. Sky backdrop (y: -120..950)
+    // 1. Sky backdrop (y: -120..950) without generic city skyline blocks
     svgEl("rect", { x: -120, y: -120, width: 1320, height: 1080, fill: skyFill }, elSky);
-
-    // Horizon city / trees silhouette above soil
-    svgEl("path", {
-      d: "M-80,930 L-80,820 L40,820 L40,760 L120,760 L120,835 L260,835 L260,790 L350,790 L350,840 L780,840 L780,770 L890,770 L890,825 L1010,825 L1010,750 L1160,750 L1160,930 Z",
-      fill: lighting === "SUNNY" ? "#0369A1" : "#0F172A",
-      opacity: "0.38"
-    }, elSky);
 
     // 2. Surface Rooftop House & Solar / System Module (y: 430..940) with 2.5px #141821 outlines
     // Main Architectural Cross-Section Building
@@ -337,6 +374,7 @@
 
   function renderWeather(scene, tSec) {
     clearNode(elWeather);
+    if (scene.customSvg || scene.backdropUri) return;
     const lighting = resolveLighting(scene);
 
     if (lighting === "SUNNY") {
@@ -405,70 +443,106 @@
     clearNode(elFlow);
     clearNode(elPointers);
 
-    // 1. Glowing Electricity Dots along Solar -> Inverter -> Pump Wire
-    const wirePts = [[340, 520], [500, 685], [500, 840], [760, 840]];
-    for (let e = 0; e < 5; e++) {
-      const f = (tSec * 0.55 + e * 0.20) % 1;
-      const pt = pointAlongSegments(wirePts, f);
-      svgEl("circle", {
-        cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 8.5,
-        fill: "#FEF08A", stroke: "#F59E0B", "stroke-width": "2.5",
-        filter: "url(#glow-cyan)"
-      }, elFlow);
+    // Tier 1: Drive .flow-pulse circles & SMIL time inside customSvg
+    const nestedSvg = elCustomSvg.querySelector("svg");
+    if (nestedSvg && typeof nestedSvg.setCurrentTime === "function") {
+      try { nestedSvg.setCurrentTime(sceneElapsed); } catch (e) {}
+    }
+    const customPulses = elCustomSvg.querySelectorAll(".flow-pulse");
+    for (let i = 0; i < customPulses.length; i++) {
+      const dot = customPulses[i];
+      const pathSel = dot.getAttribute("data-path") || "";
+      const targetPath = pathSel ? elCustomSvg.querySelector(pathSel) : null;
+      if (targetPath && typeof targetPath.getTotalLength === "function") {
+        const len = targetPath.getTotalLength();
+        if (len > 0) {
+          const speed = Number(dot.getAttribute("data-speed") || "0.45");
+          const offset = Number(dot.getAttribute("data-offset") || (i * 0.27));
+          let phase = (tSec * speed + offset) % 1;
+          if (phase < 0) phase += 1;
+          const pt = targetPath.getPointAtLength(phase * len);
+          dot.setAttribute("cx", pt.x.toFixed(1));
+          dot.setAttribute("cy", pt.y.toFixed(1));
+        }
+      }
     }
 
-    // 2. Water Stream Flow Dots inside Underground Pipe (Left Tank -> Right Tank -> Riser)
-    const pipePts = [[452, 1155], [618, 1155], [842, 1155], [842, 935]];
-    const dir = (scene.flowDirection === "DOWN") ? -1 : 1;
-    for (let w = 0; w < 6; w++) {
-      let f = (tSec * 0.42 + w * 0.166) % 1;
-      if (dir < 0) f = 1 - f;
-      const pt = pointAlongSegments(pipePts, f);
-      svgEl("circle", {
-        cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 6.5,
-        fill: "#E0F2FE", opacity: "0.90"
-      }, elFlow);
-    }
+    if (!scene.customSvg && !scene.backdropUri) {
+      // Tier 3 procedural cutaway path flows & tank mechanics
+      const wirePts = [[340, 520], [500, 685], [500, 840], [760, 840]];
+      for (let e = 0; e < 5; e++) {
+        const f = (tSec * 0.55 + e * 0.20) % 1;
+        const pt = pointAlongSegments(wirePts, f);
+        svgEl("circle", {
+          cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 8.5,
+          fill: "#FEF08A", stroke: "#F59E0B", "stroke-width": "2.5",
+          filter: "url(#glow-cyan)"
+        }, elFlow);
+      }
 
-    // 3. Rising Air Bubbles inside Left & Right Cutaway Chambers
-    for (let b = 0; b < 8; b++) {
-      const tankLeft = b < 4;
-      const bf = (tSec * (0.35 + (b % 3) * 0.08) + b * 0.23) % 1;
-      const bx = (tankLeft ? 155 : 665) + ((b % 4) * 68) + Math.sin(tSec * 3.2 + b) * 7;
-      const by = lerp(1268, 1072, bf);
-      svgEl("circle", {
-        cx: bx.toFixed(1), cy: by.toFixed(1), r: 5 + (b % 3) * 2,
-        fill: "#E0F2FE", "fill-opacity": "0.68", stroke: "#FFFFFF", "stroke-width": "1.5"
-      }, elFlow);
-    }
+      const pipePts = [[452, 1155], [618, 1155], [842, 1155], [842, 935]];
+      const dir = (scene.flowDirection === "DOWN") ? -1 : 1;
+      for (let w = 0; w < 6; w++) {
+        let f = (tSec * 0.42 + w * 0.166) % 1;
+        if (dir < 0) f = 1 - f;
+        const pt = pointAlongSegments(pipePts, f);
+        svgEl("circle", {
+          cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 6.5,
+          fill: "#E0F2FE", opacity: "0.90"
+        }, elFlow);
+      }
 
-    // 4. Swimming Fish inside Left Transparent Tank
-    for (let fIdx = 0; fIdx < 2; fIdx++) {
-      const swimPhase = (tSec * (0.28 + fIdx * 0.07) + fIdx * 0.5) % 2;
-      const goingRight = swimPhase < 1;
-      const u = goingRight ? swimPhase : 2 - swimPhase;
-      const fx = lerp(165, 385, u);
-      const fy = 1135 + fIdx * 65 + Math.sin(tSec * 3.5 + fIdx * 2) * 10;
-      const wag = Math.sin(tSec * 12 + fIdx) * 4;
-      const fishG = svgEl("g", {
-        transform: "translate(" + fx.toFixed(1) + "," + fy.toFixed(1) + ") scale(" + (goingRight ? 1 : -1) + ",1)"
-      }, elFlow);
-      svgEl("polygon", {
-        points: "-20,0 -34," + (-10 + wag) + " -34," + (10 + wag),
-        fill: fIdx === 0 ? "#FB923C" : "#FACC15", class: "cut-outline"
-      }, fishG);
-      svgEl("ellipse", {
-        cx: 0, cy: 0, rx: 22, ry: 12,
-        fill: fIdx === 0 ? "#F97316" : "#FDE047", class: "cut-outline"
-      }, fishG);
-      svgEl("circle", { cx: 10, cy: -3, r: 3, fill: "#141821" }, fishG);
-    }
+      for (let b = 0; b < 8; b++) {
+        const tankLeft = b < 4;
+        const bf = (tSec * (0.35 + (b % 3) * 0.08) + b * 0.23) % 1;
+        const bx = (tankLeft ? 155 : 665) + ((b % 4) * 68) + Math.sin(tSec * 3.2 + b) * 7;
+        const by = lerp(1268, 1072, bf);
+        svgEl("circle", {
+          cx: bx.toFixed(1), cy: by.toFixed(1), r: 5 + (b % 3) * 2,
+          fill: "#E0F2FE", "fill-opacity": "0.68", stroke: "#FFFFFF", "stroke-width": "1.5"
+        }, elFlow);
+      }
 
-    // 5. Rotating Mechanical Valve Spokes at (842, 768)
-    const valveDeg = (tSec * 72) % 360;
-    const vg = svgEl("g", { transform: "translate(842, 768) rotate(" + valveDeg.toFixed(1) + ")" }, elFlow);
-    svgEl("line", { x1: -28, y1: 0, x2: 28, y2: 0, stroke: "#141821", "stroke-width": "6" }, vg);
-    svgEl("line", { x1: 0, y1: -28, x2: 0, y2: 28, stroke: "#141821", "stroke-width": "6" }, vg);
+      for (let fIdx = 0; fIdx < 2; fIdx++) {
+        const swimPhase = (tSec * (0.28 + fIdx * 0.07) + fIdx * 0.5) % 2;
+        const goingRight = swimPhase < 1;
+        const u = goingRight ? swimPhase : 2 - swimPhase;
+        const fx = lerp(165, 385, u);
+        const fy = 1135 + fIdx * 65 + Math.sin(tSec * 3.5 + fIdx * 2) * 10;
+        const wag = Math.sin(tSec * 12 + fIdx) * 4;
+        const fishG = svgEl("g", {
+          transform: "translate(" + fx.toFixed(1) + "," + fy.toFixed(1) + ") scale(" + (goingRight ? 1 : -1) + ",1)"
+        }, elFlow);
+        svgEl("polygon", {
+          points: "-20,0 -34," + (-10 + wag) + " -34," + (10 + wag),
+          fill: fIdx === 0 ? "#FB923C" : "#FACC15", class: "cut-outline"
+        }, fishG);
+        svgEl("ellipse", {
+          cx: 0, cy: 0, rx: 22, ry: 12,
+          fill: fIdx === 0 ? "#F97316" : "#FDE047", class: "cut-outline"
+        }, fishG);
+        svgEl("circle", { cx: 10, cy: -3, r: 3, fill: "#141821" }, fishG);
+      }
+
+      const valveDeg = (tSec * 72) % 360;
+      const vg = svgEl("g", { transform: "translate(842, 768) rotate(" + valveDeg.toFixed(1) + ")" }, elFlow);
+      svgEl("line", { x1: -28, y1: 0, x2: 28, y2: 0, stroke: "#141821", "stroke-width": "6" }, vg);
+      svgEl("line", { x1: 0, y1: -28, x2: 0, y2: 28, stroke: "#141821", "stroke-width": "6" }, vg);
+    } else if (scene.backdropUri) {
+      // Tier 2: Crisp animated vector flow rail overlaid on 2D cutaway illustration
+      const dir = scene.flowDirection || "LEFT_TO_RIGHT";
+      const pts = (dir === "UP" || dir === "DOWN")
+        ? [[540, 1080], [540, 560]]
+        : [[200, 960], [540, 880], [880, 960]];
+      const pathStr = pts.map(function(p, i) { return (i === 0 ? "M" : "L") + p[0] + "," + p[1]; }).join(" ");
+      svgEl("path", { d: pathStr, stroke: "#22D3EE", "stroke-width": "4", "stroke-dasharray": "14 10", fill: "none", opacity: "0.48" }, elFlow);
+      for (let d = 0; d < 4; d++) {
+        let f = (tSec * 0.45 + d * 0.25) % 1;
+        if (dir === "DOWN") f = 1 - f;
+        const pt = pointAlongSegments(pts, f);
+        svgEl("circle", { cx: pt.x.toFixed(1), cy: pt.y.toFixed(1), r: 8, fill: "#FEF08A", stroke: "#141821", "stroke-width": "2", filter: "url(#glow-cyan)" }, elFlow);
+      }
+    }
 
     // 6. Sub-beat 2.5s Pointer Callout Pins
     const subBeatLocal = (sceneElapsed % 2.5);

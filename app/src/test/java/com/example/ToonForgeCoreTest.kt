@@ -2314,6 +2314,104 @@ class ToonForgeCoreTest {
         assertTrue(prompt.contains("VIRAL LOOP BLUEPRINT"))
         assertTrue(prompt.contains("NO DEFAULT HOST CHARACTER"))
         assertTrue(prompt.contains("\"hud_unit\""))
+        assertTrue(prompt.contains("\"custom_svg\""))
         assertEquals("ToonForge_123_cover.jpg", VideoGalleryRepository.coverFileNameForVideo("ToonForge_123.mp4"))
+    }
+
+    @Test
+    fun `placeholderGraphicsRemovedAndBespokeSvgCustomHtmlHybridWorks`() {
+        // 1. Verify NO Play-button icon or generic renderThemeDetails exist in MotionHtmlDirector
+        val scene = SceneScript(
+            sceneId = 1,
+            tagalogNarration = "Tingnan kung paano gumagana ang solar battery inverter sa bahay.",
+            backgroundPrompt = "solar panel roof diagram",
+            cameraMotion = CameraMotion.ZOOM_IN,
+            actorRole = ActorRole.NARRATOR,
+            actorAction = ActorAction.TALK_BOUNCE,
+            worldFx = WorldFx.NONE,
+            hasCharacter = false,
+            customSvg = """
+                <svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">
+                  <path id="solar-wire" d="M220,520 L540,780 L840,780" stroke="#FACC15" stroke-width="6" fill="none" />
+                  <circle class="flow-pulse" data-path="#solar-wire" r="8" fill="#38BDF8" />
+                  <script>alert('xss')</script>
+                </svg>
+            """.trimIndent()
+        )
+        val html = MotionHtmlDirector.buildHtmlDocument(
+            scenes = listOf(TimelineScene(scene = scene, startMs = 0.0, endMs = 3500.0, wordTimings = emptyList())),
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+            totalDurationMs = 3500.0
+        )
+        assertFalse(html.contains("-28,-30 48,15 -28,60"))
+        assertFalse(html.contains("function renderThemeDetails"))
+        assertTrue(html.contains("id=\"custom-svg-layer\""))
+        assertTrue(html.contains("id=\"flow-overlay-layer\""))
+        assertTrue(html.contains("elBackdropImg.setAttribute(\"opacity\", \"1\")"))
+        assertTrue(html.contains("customSvg"))
+
+        val cutawayHtml = MotionHtmlDirector.buildHtmlDocument(
+            scenes = listOf(TimelineScene(scene = scene, startMs = 0.0, endMs = 3500.0, wordTimings = emptyList())),
+            style = AnimationStyle.CROSS_SECTION,
+            totalDurationMs = 3500.0
+        )
+        assertFalse(cutawayHtml.contains("M-80,930"))
+        assertTrue(cutawayHtml.contains("id=\"custom-svg-layer\""))
+        assertTrue(cutawayHtml.contains(".flow-pulse"))
+
+        // 2. JsonSanitizer parses & sanitizes custom_svg safely (strips <script>, preserves vector primitives)
+        val jsonWithSvg = """
+            {"scenes":[{
+              "scene_id": 1,
+              "tagalog_narration": "Paano umiikot ang malinis na tubig sa underground filter tank?",
+              "visual_description": "Layered cutaway SVG of underground gravel water filter chamber with glowing cyan flow pulses and clean dark outlines.",
+              "background_prompt": "underground filter cutaway",
+              "camera_motion": "PAN_RIGHT",
+              "actor_role": "NARRATOR",
+              "actor_action": "POINT_STICK",
+              "world_fx": "NONE",
+              "custom_svg": "<svg viewBox=\"0 0 1080 1920\" onload=\"evil()\"><path id=\"pipe\" d=\"M100,900 L900,900\" stroke=\"#141821\" stroke-width=\"2.5\"/><circle class=\"flow-pulse\" data-path=\"#pipe\" r=\"7\" fill=\"#22D3EE\"/><script>bad()</script></svg>"
+            }]}
+        """.trimIndent()
+        val parsedList = JsonSanitizer.parseAndValidateScenes(jsonWithSvg)
+        assertEquals(1, parsedList.size)
+        val parsedSvg = parsedList[0].customSvg
+        assertTrue(parsedSvg.contains("<path id=\"pipe\""))
+        assertTrue(parsedSvg.contains("flow-pulse"))
+        assertFalse(parsedSvg.contains("<script>"))
+        assertFalse(parsedSvg.contains("onload="))
+
+        // 3. DirectStoryboardParser detects and passes through raw HTML & SVG verbatim without template wrapping
+        val rawHtml = """
+            <!DOCTYPE html>
+            <html><head><meta name="toonforge-narration" content="Alam mo ba ang sekreto ng solar inverter sa gabi?"></head>
+            <body><svg viewBox="0 0 1080 1920"><rect width="1080" height="1920" fill="#0B1120"/></svg>
+            <script>window.seekToTime = function(s) { window.__t = s; };</script></body></html>
+        """.trimIndent()
+        assertTrue(DirectStoryboardParser.looksLikeHtmlOrSvgInput(rawHtml))
+        assertFalse(DirectStoryboardParser.looksLikeJsonInput(rawHtml))
+        val parsedHtmlRes = DirectStoryboardParser.parse(rawHtml, AnimationStyle.ATMOSPHERIC_2D_STORY)
+        assertTrue(parsedHtmlRes.isCustomHtmlOrSvg)
+        assertEquals("Direct Custom HTML", parsedHtmlRes.providerLabel)
+        assertEquals(rawHtml, parsedHtmlRes.customHtmlDocument)
+        assertTrue(parsedHtmlRes.scenes[0].tagalogNarration.contains("solar inverter"))
+
+        val rawSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path id=\"p1\" d=\"M100,500 L980,500\" stroke=\"#38BDF8\"/><circle class=\"flow-pulse\" data-path=\"#p1\" r=\"8\" fill=\"#FFD60A\"/></svg>"
+        assertTrue(DirectStoryboardParser.looksLikeHtmlOrSvgInput("```svg\n$rawSvg\n```"))
+        assertEquals("Custom SVG • Ready", DirectStoryboardParser.estimatePreviewSummary(rawSvg))
+        val parsedSvgRes = DirectStoryboardParser.parse(rawSvg, AnimationStyle.CROSS_SECTION)
+        assertTrue(parsedSvgRes.isCustomHtmlOrSvg)
+        assertEquals("Direct Custom SVG", parsedSvgRes.providerLabel)
+        val wrappedSvgHtml = parsedSvgRes.customHtmlDocument.orEmpty()
+        assertTrue(wrappedSvgHtml.contains("viewBox=\"0 0 1080 1920\""))
+        assertTrue(wrappedSvgHtml.contains("window.seekToTime = function(seconds)"))
+        assertTrue(wrappedSvgHtml.contains(".flow-pulse"))
+
+        // 4. Flat 2D Vector prompt builder
+        val vecPrompt = AiHordeImageClient.buildFlatVectorIllustrationPrompt(
+            "Solar panel roof connected to home battery",
+            AnimationStyle.ATMOSPHERIC_2D_STORY
+        )
+        assertTrue(vecPrompt.contains("2D flat vector illustration, cel-shaded, clean dark outlines, atmospheric lighting, no text, no watermark, no people"))
     }
 }

@@ -121,321 +121,110 @@ object EnvironmentRenderer {
         canvas.drawRect(0f, h * 0.80f, w, h, bottomTiltShift)
     }
 
-    private fun drawBrightMorningKitchen(canvas: Canvas, w: Float, h: Float, u: Float) {
-        val groundY = h * 0.675f
-
-        // Warm sunlit buttercream plaster wall
+    private fun drawAtmosphericStageGradient(
+        canvas: Canvas,
+        w: Float,
+        h: Float,
+        u: Float,
+        topColor: Int,
+        midColor: Int,
+        bottomColor: Int,
+        beamColor: Int,
+        rimColor: Int
+    ) {
         canvas.drawRect(
-            0f, 0f, w, groundY,
+            0f, 0f, w, h,
             Paint().apply {
                 shader = LinearGradient(
-                    0f, 0f, w, groundY,
-                    intArrayOf(0xFFFFF8E7.toInt(), 0xFFFAE3B4.toInt(), 0xFFF3CFA0.toInt()),
-                    floatArrayOf(0f, 0.55f, 1f),
+                    0f, 0f, 0f, h,
+                    intArrayOf(topColor, midColor, bottomColor),
+                    floatArrayOf(0f, 0.56f, 1f),
                     Shader.TileMode.CLAMP
                 )
             }
         )
 
-        // Subtle subway ceramic tile backsplash above counter
-        val tileTop = h * 0.42f
-        val tilePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-        val groutPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x2894A3B8
-            setStyle(Paint.Style.STROKE)
-            strokeWidth = 3f * u
+        val radialGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(
+                w * 0.5f, h * 0.34f, w * 0.72f,
+                intArrayOf(rimColor, 0x00000000),
+                null, Shader.TileMode.CLAMP
+            )
         }
-        canvas.drawRect(0f, tileTop, w, groundY, Paint().apply { color = 0xFFF8FAFC.toInt() })
-        val tileW = 108f * u
-        val tileH = 52f * u
-        var ty = tileTop
-        var row = 0
-        while (ty < groundY) {
-            var tx = if (row % 2 == 0) 0f else -tileW * 0.5f
-            while (tx < w) {
-                val r = RectF(tx + 2f * u, ty + 2f * u, tx + tileW - 2f * u, ty + tileH - 2f * u)
-                canvas.drawRect(r, tilePaint)
-                canvas.drawRect(r, groutPaint)
-                tx += tileW
-            }
-            ty += tileH
-            row++
-        }
+        canvas.drawCircle(w * 0.5f, h * 0.34f, w * 0.72f, radialGlow)
 
-        // Large bright sunlit window showing morning sky & garden greenery
-        val winRect = RectF(w * 0.23f, h * 0.14f, w * 0.77f, h * 0.40f)
-        canvas.drawRoundRect(
-            RectF(winRect.left - 18f * u, winRect.top - 18f * u, winRect.right + 18f * u, winRect.bottom + 20f * u),
-            16f * u, 16f * u,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8B5E3C.toInt() }
-        )
-        canvas.drawRect(
-            winRect,
-            Paint().apply {
-                shader = LinearGradient(
-                    winRect.left, winRect.top, winRect.left, winRect.bottom,
-                    intArrayOf(0xFF38BDF8.toInt(), 0xFFBAE6FD.toInt(), 0xFFFEF08A.toInt()),
-                    floatArrayOf(0f, 0.65f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
-        )
-        // Garden bushes visible outside window
-        canvas.drawCircle(winRect.left + 85f * u, winRect.bottom - 10f * u, 70f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF34D399.toInt() })
-        canvas.drawCircle(winRect.right - 95f * u, winRect.bottom, 82f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF10B981.toInt() })
-        // Window muntins
-        val sashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAF6EE.toInt(); strokeWidth = 10f * u }
-        canvas.drawLine(winRect.centerX(), winRect.top, winRect.centerX(), winRect.bottom, sashPaint)
-        canvas.drawLine(winRect.left, winRect.centerY(), winRect.right, winRect.centerY(), sashPaint)
-
-        // Floating wooden shelf & breakfast jars on left/right walls
-        val shelfPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9A6B3F.toInt() }
-        canvas.drawRoundRect(RectF(w * 0.04f, h * 0.24f, w * 0.19f, h * 0.26f), 6f * u, 6f * u, shelfPaint)
-        canvas.drawRoundRect(RectF(w * 0.06f, h * 0.18f, w * 0.12f, h * 0.24f), 8f * u, 8f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF38BDF8.toInt() })
-        canvas.drawRoundRect(RectF(w * 0.81f, h * 0.24f, w * 0.96f, h * 0.26f), 6f * u, 6f * u, shelfPaint)
-        canvas.drawCircle(w * 0.88f, h * 0.205f, 34f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFBBF24.toInt() })
-
-        // Kitchen countertop silhouette across lower wall
-        val counterTop = h * 0.535f
-        canvas.drawRect(0f, counterTop, w, groundY, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFD97706.toInt() })
-        canvas.drawRect(0f, counterTop, w, counterTop + 26f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFDFBF7.toInt() })
-        // Morning kettle on left counter edge
-        canvas.drawRoundRect(RectF(w * 0.08f, counterTop - 72f * u, w * 0.18f, counterTop), 18f * u, 18f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEF4444.toInt() })
-
-        // Diagonal golden morning sunbeams slicing across kitchen
-        val rayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val beamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
-                winRect.left, winRect.top, w * 0.85f, h * 0.82f,
-                intArrayOf(0x55FFFBEB, 0x22FEF08A, 0x00FFFBEB),
+                w * 0.78f, 0f, w * 0.25f, h * 0.84f,
+                intArrayOf(beamColor, (beamColor and 0x00FFFFFF) or 0x16000000, 0x00000000),
                 floatArrayOf(0f, 0.55f, 1f),
                 Shader.TileMode.CLAMP
             )
         }
-        val sunbeam = Path().apply {
-            moveTo(winRect.left, winRect.top)
-            lineTo(winRect.right, winRect.top)
-            lineTo(w * 0.96f, h * 0.85f)
-            lineTo(w * 0.35f, h * 0.85f)
+        val beamPath = Path().apply {
+            moveTo(w * 0.62f, 0f)
+            lineTo(w * 0.94f, 0f)
+            lineTo(w * 0.62f, h * 0.88f)
+            lineTo(w * 0.14f, h * 0.88f)
             close()
         }
-        canvas.drawPath(sunbeam, rayPaint)
+        canvas.drawPath(beamPath, beamPaint)
 
-        // Warm hardwood kitchen floor planks
-        drawWoodFloor(canvas, w, h, u, groundY, lightWood = 0xFFD99B58.toInt(), darkWood = 0xFFA46B35.toInt())
+        // Clean horizon mist band
+        canvas.drawRect(
+            0f, h * 0.675f, w, h,
+            Paint().apply {
+                shader = LinearGradient(
+                    0f, h * 0.675f, 0f, h,
+                    intArrayOf(0x22000000, 0x66060912),
+                    null, Shader.TileMode.CLAMP
+                )
+            }
+        )
+    }
+
+    private fun drawBrightMorningKitchen(canvas: Canvas, w: Float, h: Float, u: Float) {
+        drawAtmosphericStageGradient(
+            canvas = canvas, w = w, h = h, u = u,
+            topColor = 0xFF0F2942.toInt(),
+            midColor = 0xFF1E4E68.toInt(),
+            bottomColor = 0xFF111827.toInt(),
+            beamColor = 0x4DFDE68A,
+            rimColor = 0x3DFEF3C7
+        )
     }
 
     private fun drawSunnyMarketStreet(canvas: Canvas, w: Float, h: Float, u: Float, rng: Random) {
-        val groundY = h * 0.675f
-
-        // Crisp bright daytime blue sky
-        canvas.drawRect(
-            0f, 0f, w, groundY,
-            Paint().apply {
-                shader = LinearGradient(
-                    0f, 0f, 0f, groundY,
-                    intArrayOf(0xFF0284C7.toInt(), 0xFF38BDF8.toInt(), 0xFFBAE6FD.toInt()),
-                    floatArrayOf(0f, 0.52f, 1f),
-                    Shader.TileMode.CLAMP
-                )
-            }
+        drawAtmosphericStageGradient(
+            canvas = canvas, w = w, h = h, u = u,
+            topColor = 0xFF0C4A6E.toInt(),
+            midColor = 0xFF0369A1.toInt(),
+            bottomColor = 0xFF0F172A.toInt(),
+            beamColor = 0x44FDE047,
+            rimColor = 0x38BAE6FD
         )
-
-        drawSunOrb(canvas, w * 0.78f, h * 0.16f, w * 0.085f, 0xFFFEF08A.toInt())
-        drawCloud(canvas, w * 0.26f, h * 0.14f, w * 0.36f, h * 0.045f, 0xEBFFFFFF.toInt(), 0x220284C7, u)
-        drawCloud(canvas, w * 0.64f, h * 0.22f, w * 0.30f, h * 0.038f, 0xE6FFFFFF.toInt(), 0x220284C7, u)
-
-        // Distant rolling green hill horizon
-        drawSineHill(canvas, w, h, groundY - 90f * u, 38f * u, 1.8f, 0.6f, 0xFF34D399.toInt(), 0xFF059669.toInt())
-
-        // Left & right sunlit Pinoy shophouses + colorful striped market awnings
-        val stallColors = listOf(
-            Triple(0xFFFFF1E6.toInt(), 0xFFEF4444.toInt(), 0xFFFCA5A5.toInt()),
-            Triple(0xFFFEF9C3.toInt(), 0xFF0EA5E9.toInt(), 0xFFBAE6FD.toInt()),
-            Triple(0xFFECFDF5.toInt(), 0xFFF59E0B.toInt(), 0xFFFDE68A.toInt())
-        )
-        val stallW = w * 0.31f
-        val xs = listOf(w * 0.03f, w * 0.345f, w * 0.66f)
-        xs.forEachIndexed { idx, sx ->
-            val (wall, stripeA, stripeB) = stallColors[idx]
-            val bh = h * (0.21f + (idx % 2) * 0.035f)
-            val top = groundY - bh
-            canvas.drawRoundRect(RectF(sx, top, sx + stallW, groundY), 10f * u, 10f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = wall })
-            // Striped awning
-            val awnTop = top + bh * 0.30f
-            val awnBot = awnTop + 44f * u
-            val stripes = 6
-            val sw = (stallW + 16f * u) / stripes
-            for (s in 0 until stripes) {
-                val r = RectF(sx - 8f * u + s * sw, awnTop, sx - 8f * u + (s + 1) * sw, awnBot)
-                canvas.drawRect(r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (s % 2 == 0) stripeA else stripeB })
-            }
-            // Shop doorway & display goods
-            canvas.drawRoundRect(
-                RectF(sx + stallW * 0.20f, awnBot + 16f * u, sx + stallW * 0.80f, groundY),
-                8f * u, 8f * u,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF475569.toInt() }
-            )
-            // Potted tropical shrub beside stall
-            canvas.drawCircle(sx + 16f * u, groundY - 28f * u, 28f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16A34A.toInt() })
-        }
-
-        // Festive fiesta buntings curving across top sky
-        val cord = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF334155.toInt(); setStyle(Paint.Style.STROKE); strokeWidth = 3f * u }
-        val cordPath = Path().apply {
-            moveTo(0f, h * 0.12f)
-            quadTo(w * 0.5f, h * 0.21f, w, h * 0.13f)
-        }
-        canvas.drawPath(cordPath, cord)
-        val flagColors = intArrayOf(0xFFEF4444.toInt(), 0xFFFACC15.toInt(), 0xFF22C55E.toInt(), 0xFF3B82F6.toInt())
-        for (i in 1..9) {
-            val t = i / 10f
-            val fx = t * w
-            val fy = h * 0.12f * (1 - t) * (1 - t) + 2f * (1 - t) * t * (h * 0.21f) + t * t * (h * 0.13f)
-            val tri = Path().apply {
-                moveTo(fx - 16f * u, fy)
-                lineTo(fx + 16f * u, fy)
-                lineTo(fx, fy + 32f * u)
-                close()
-            }
-            canvas.drawPath(tri, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = flagColors[i % flagColors.size] })
-        }
-
-        // Clean paved sidewalk & sunlit asphalt street
-        canvas.drawRect(0f, groundY, w, groundY + 62f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE2E8F0.toInt() })
-        canvas.drawRect(0f, groundY + 62f * u, w, h, Paint().apply {
-            shader = LinearGradient(0f, groundY + 62f * u, 0f, h, 0xFF64748B.toInt(), 0xFF334155.toInt(), Shader.TileMode.CLAMP)
-        })
-        // Dashed sunlit road center line
-        val dashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFACC15.toInt() }
-        var dx = 40f * u + (rng.nextInt(40) * u)
-        while (dx < w) {
-            canvas.drawRoundRect(RectF(dx, groundY + 210f * u, dx + 110f * u, groundY + 228f * u), 6f * u, 6f * u, dashPaint)
-            dx += 190f * u
-        }
     }
 
     private fun drawModernOfficeDesk(canvas: Canvas, w: Float, h: Float, u: Float) {
-        val groundY = h * 0.675f
-
-        // Crisp architectural slate-white interior wall
-        canvas.drawRect(
-            0f, 0f, w, groundY,
-            Paint().apply {
-                shader = LinearGradient(
-                    0f, 0f, 0f, groundY,
-                    intArrayOf(0xFFE2E8F0.toInt(), 0xFFF1F5F9.toInt(), 0xFFCBD5E1.toInt()),
-                    floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-                )
-            }
+        drawAtmosphericStageGradient(
+            canvas = canvas, w = w, h = h, u = u,
+            topColor = 0xFF0F172A.toInt(),
+            midColor = 0xFF1E293B.toInt(),
+            bottomColor = 0xFF090D16.toInt(),
+            beamColor = 0x4038BDF8,
+            rimColor = 0x307DD3FC
         )
-
-        // Floor-to-ceiling panoramic city daylight window
-        val winRect = RectF(w * 0.14f, h * 0.12f, w * 0.86f, h * 0.50f)
-        canvas.drawRect(
-            winRect,
-            Paint().apply {
-                shader = LinearGradient(
-                    0f, winRect.top, 0f, winRect.bottom,
-                    intArrayOf(0xFF0EA5E9.toInt(), 0xFF7DD3FC.toInt(), 0xFFE0F2FE.toInt()),
-                    floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP
-                )
-            }
-        )
-        // Distant sunlit skyline silhouettes inside office window
-        val bPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF94A3B8.toInt() }
-        for (i in 0 until 7) {
-            val bx = winRect.left + i * (winRect.width() / 7f) + 6f * u
-            val bh = (80f + (i % 3) * 48f) * u
-            canvas.drawRect(bx, winRect.bottom - bh, bx + winRect.width() / 8f, winRect.bottom, bPaint)
-        }
-        val mullion = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF334155.toInt(); setStyle(Paint.Style.STROKE); strokeWidth = 12f * u }
-        canvas.drawRect(winRect, mullion)
-        canvas.drawLine(winRect.left + winRect.width() * 0.33f, winRect.top, winRect.left + winRect.width() * 0.33f, winRect.bottom, mullion)
-        canvas.drawLine(winRect.left + winRect.width() * 0.66f, winRect.top, winRect.left + winRect.width() * 0.66f, winRect.bottom, mullion)
-
-        // Office wooden credenza + glowing monitor + potted plant behind stage
-        val deskTop = h * 0.54f
-        canvas.drawRoundRect(RectF(w * 0.10f, deskTop, w * 0.90f, groundY), 10f * u, 10f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9A6B3F.toInt() })
-        canvas.drawRoundRect(RectF(w * 0.08f, deskTop - 16f * u, w * 0.92f, deskTop + 8f * u), 8f * u, 8f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFC59B6D.toInt() })
-        // Monitor silhouette
-        canvas.drawRect(w * 0.48f, deskTop - 36f * u, w * 0.52f, deskTop - 16f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF475569.toInt() })
-        canvas.drawRoundRect(RectF(w * 0.36f, deskTop - 140f * u, w * 0.64f, deskTop - 34f * u), 10f * u, 10f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E293B.toInt() })
-        canvas.drawRoundRect(RectF(w * 0.375f, deskTop - 130f * u, w * 0.625f, deskTop - 44f * u), 6f * u, 6f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF38BDF8.toInt() })
-        // Monstera pot on right
-        canvas.drawRoundRect(RectF(w * 0.77f, deskTop - 52f * u, w * 0.85f, deskTop - 14f * u), 8f * u, 8f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() })
-        canvas.drawCircle(w * 0.81f, deskTop - 72f * u, 36f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16A34A.toInt() })
-
-        // Modern polished warm-oak studio office floor
-        drawWoodFloor(canvas, w, h, u, groundY, lightWood = 0xFF94A3B8.toInt(), darkWood = 0xFF475569.toInt())
     }
 
     private fun drawCozyBedroomMidnight(canvas: Canvas, w: Float, h: Float, u: Float, rng: Random) {
-        val groundY = h * 0.675f
-
-        // Deep cozy indigo bedroom wallpaper
-        canvas.drawRect(
-            0f, 0f, w, groundY,
-            Paint().apply {
-                shader = LinearGradient(
-                    0f, 0f, 0f, groundY,
-                    intArrayOf(0xFF0B1026.toInt(), 0xFF162044.toInt(), 0xFF1F2D5A.toInt()),
-                    floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-                )
-            }
+        drawAtmosphericStageGradient(
+            canvas = canvas, w = w, h = h, u = u,
+            topColor = 0xFF060914.toInt(),
+            midColor = 0xFF111A36.toInt(),
+            bottomColor = 0xFF070A12.toInt(),
+            beamColor = 0x38818CF8,
+            rimColor = 0x2E38BDF8
         )
-
-        // Moonlight window with starry night & glowing crescent moon
-        val winRect = RectF(w * 0.14f, h * 0.14f, w * 0.52f, h * 0.42f)
-        canvas.drawRoundRect(RectF(winRect.left - 12f * u, winRect.top - 12f * u, winRect.right + 12f * u, winRect.bottom + 14f * u), 12f * u, 12f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E293B.toInt() })
-        canvas.drawRect(winRect, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF070B19.toInt() })
-        val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE2E8F0.toInt() }
-        for (i in 0 until 18) {
-            val sx = winRect.left + 16f * u + rng.nextFloat() * (winRect.width() - 32f * u)
-            val sy = winRect.top + 16f * u + rng.nextFloat() * (winRect.height() - 32f * u)
-            canvas.drawCircle(sx, sy, (2f + (i % 3)) * u, starPaint)
-        }
-        val moonCx = winRect.right - 72f * u
-        val moonCy = winRect.top + 76f * u
-        canvas.drawCircle(moonCx, moonCy, 34f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFEF08A.toInt() })
-        canvas.drawCircle(moonCx + 14f * u, moonCy - 8f * u, 30f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF070B19.toInt() })
-
-        // Window bars
-        val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF334155.toInt(); strokeWidth = 8f * u }
-        canvas.drawLine(winRect.centerX(), winRect.top, winRect.centerX(), winRect.bottom, barPaint)
-        canvas.drawLine(winRect.left, winRect.centerY(), winRect.right, winRect.centerY(), barPaint)
-
-        // Cozy wooden bed headboard & plush blanket on right
-        val bedLeft = w * 0.50f
-        val bedRight = w * 0.96f
-        canvas.drawRoundRect(RectF(bedLeft, h * 0.44f, bedRight, groundY), 16f * u, 16f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF452C1E.toInt() })
-        canvas.drawRoundRect(RectF(bedLeft + 26f * u, h * 0.51f, bedLeft + 150f * u, h * 0.57f), 20f * u, 20f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE2E8F0.toInt() })
-        canvas.drawRoundRect(RectF(bedLeft + 16f * u, h * 0.56f, bedRight - 10f * u, groundY), 18f * u, 18f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF312E81.toInt() })
-
-        // Nightstand & glowing warm amber bedside lamp casting light pool
-        val lampX = w * 0.40f
-        val lampY = h * 0.45f
-        val lampGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(
-                lampX, lampY, 280f * u,
-                intArrayOf(0xAAFEF08A.toInt(), 0x44F59E0B, 0x00F59E0B),
-                floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
-            )
-        }
-        canvas.drawCircle(lampX, lampY, 280f * u, lampGlow)
-        canvas.drawRoundRect(RectF(lampX - 54f * u, h * 0.55f, lampX + 54f * u, groundY), 8f * u, 8f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3B2418.toInt() })
-        canvas.drawRect(lampX - 6f * u, lampY + 26f * u, lampX + 6f * u, h * 0.55f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFBBF24.toInt() })
-        val shade = Path().apply {
-            moveTo(lampX - 30f * u, lampY - 20f * u)
-            lineTo(lampX + 30f * u, lampY - 20f * u)
-            lineTo(lampX + 46f * u, lampY + 28f * u)
-            lineTo(lampX - 46f * u, lampY + 28f * u)
-            close()
-        }
-        canvas.drawPath(shade, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFDE68A.toInt() })
-
-        // Dark cozy bedroom hardwood floor + soft woven bedside rug
-        drawWoodFloor(canvas, w, h, u, groundY, lightWood = 0xFF3B2A22.toInt(), darkWood = 0xFF1F1612.toInt())
-        canvas.drawOval(RectF(w * 0.18f, groundY + 42f * u, w * 0.82f, groundY + 190f * u), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF4338CA.toInt() })
     }
 
     private fun drawClassroomChalkboard(canvas: Canvas, w: Float, h: Float, u: Float) {
@@ -747,53 +536,14 @@ object EnvironmentRenderer {
     }
 
     private fun drawDramaticSunsetCity(canvas: Canvas, w: Float, h: Float, u: Float, rng: Random) {
-        val groundY = h * 0.675f
-
-        // Vivid crimson-orange-gold sunset sky
-        canvas.drawRect(
-            0f, 0f, w, groundY,
-            Paint().apply {
-                shader = LinearGradient(
-                    0f, 0f, 0f, groundY,
-                    intArrayOf(0xFF311042.toInt(), 0xFFB91C1C.toInt(), 0xFFF59E0B.toInt()),
-                    floatArrayOf(0f, 0.52f, 1f), Shader.TileMode.CLAMP
-                )
-            }
+        drawAtmosphericStageGradient(
+            canvas = canvas, w = w, h = h, u = u,
+            topColor = 0xFF2E1042.toInt(),
+            midColor = 0xFF9A1B32.toInt(),
+            bottomColor = 0xFF0F172A.toInt(),
+            beamColor = 0x4DF59E0B,
+            rimColor = 0x3DFDE047
         )
-
-        // Large glowing setting sun
-        drawSunOrb(canvas, w * 0.52f, groundY - 120f * u, w * 0.15f, 0xFFFDE047.toInt())
-
-        // Layered skyline skyscrapers with warm lit windows
-        val slotW = w / 6f
-        for (i in 0 until 6) {
-            val left = i * slotW + 6f * u
-            val right = (i + 1) * slotW - 8f * u
-            val bH = h * (0.16f + (i * 37 % 10) * 0.015f)
-            val top = groundY - bH
-            canvas.drawRoundRect(RectF(left, top, right, groundY), 6f * u, 6f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E1B4B.toInt() })
-            val winPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFBBF24.toInt() }
-            var wy = top + 24f * u
-            while (wy < groundY - 36f * u) {
-                var wx = left + 18f * u
-                while (wx < right - 26f * u) {
-                    if (rng.nextFloat() > 0.25f) {
-                        canvas.drawRect(wx, wy, wx + 18f * u, wy + 22f * u, winPaint)
-                    }
-                    wx += 32f * u
-                }
-                wy += 42f * u
-            }
-        }
-
-        // Dusk city promenade pavement
-        canvas.drawRect(
-            0f, groundY, w, h,
-            Paint().apply {
-                shader = LinearGradient(0f, groundY, 0f, h, 0xFF334155.toInt(), 0xFF0F172A.toInt(), Shader.TileMode.CLAMP)
-            }
-        )
-        canvas.drawLine(0f, groundY, w, groundY, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x88F59E0B.toInt(); strokeWidth = 5f * u })
     }
 
     private fun drawSunOrb(canvas: Canvas, cx: Float, cy: Float, radius: Float, coreColor: Int) {

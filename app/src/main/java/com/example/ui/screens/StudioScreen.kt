@@ -247,7 +247,9 @@ fun StudioScreen(
                     scriptText = directScriptText,
                     onScriptChange = { viewModel.updateDirectScriptText(it) },
                     onImportFile = {
-                        directScriptLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        directScriptLauncher.launch(
+                            arrayOf("text/html", "image/svg+xml", "application/json", "text/plain", "*/*")
+                        )
                     },
                     onCopyTemplate = {
                         clipboardManager.setText(AnnotatedString(DirectStoryboardParser.COPY_JSON_TEMPLATE))
@@ -816,6 +818,8 @@ fun StudioScreen(
                 viewModel = viewModel,
                 productionMode = productionMode,
                 selectedStyle = selectedStyle,
+                scriptSourceMode = scriptSourceMode,
+                directScriptText = directScriptText,
                 customSprites = previewCustomSprites,
                 previewPlaying = previewPlaying,
                 previewTimeMs = previewTimeMs,
@@ -1036,7 +1040,7 @@ private fun DirectScriptInputCard(
     onClear: () -> Unit
 ) {
     val summary = remember(scriptText) {
-        if (scriptText.isBlank()) "Ready for JSON or Tagalog" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
+        if (scriptText.isBlank()) "Ready for JSON, HTML/SVG, or Tagalog" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
     }
 
     Card(
@@ -1087,36 +1091,36 @@ private fun DirectScriptInputCard(
                 }
             }
 
-            Text(
-                text = "Zero LLM/Horde network calls. Paste full scene JSON or plain Tagalog paragraphs — skips straight to ElevenLabs TTS -> Art -> 1080x1920 Video.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onImportFile,
-                    border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .testTag("import_direct_script_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.FileUpload,
-                        contentDescription = "Import .json or .txt file",
-                        tint = ForgeCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Import .json / .txt",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = ForgeCyan,
+                        text = "Zero LLM/Horde network calls. Paste full scene JSON, raw HTML5/SVG animation code, or plain Tagalog text — renders directly to ElevenLabs TTS + 1080x1920 MP4.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onImportFile,
+                            border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("import_direct_script_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FileUpload,
+                                contentDescription = "Import HTML, SVG, JSON, or TXT file",
+                                tint = ForgeCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Import HTML/SVG/JSON/TXT",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = ForgeCyan,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1151,9 +1155,9 @@ private fun DirectScriptInputCard(
             OutlinedTextField(
                 value = scriptText,
                 onValueChange = onScriptChange,
-                label = { Text("JSON Storyboard or Plain Tagalog Text") },
+                label = { Text("JSON, Raw HTML/SVG, or Plain Tagalog Text") },
                 placeholder = {
-                    Text("Paste {\"scenes\": [...]} JSON OR plain Tagalog sentences/paragraphs (auto-split into ~15-word animated scenes)...")
+                    Text("Paste {\"scenes\": [...]} JSON, <!DOCTYPE html>/<svg> bespoke animation code, OR plain Tagalog sentences...")
                 },
                 minLines = 6,
                 maxLines = 12,
@@ -1387,6 +1391,8 @@ private fun LiveCanvasPreviewCard(
     viewModel: MainViewModel,
     productionMode: ProductionMode,
     selectedStyle: AnimationStyle,
+    scriptSourceMode: ScriptSourceMode,
+    directScriptText: String,
     customSprites: Map<ActorRole, android.graphics.Bitmap>,
     previewPlaying: Boolean,
     previewTimeMs: Double,
@@ -1473,12 +1479,22 @@ private fun LiveCanvasPreviewCard(
                     }
                 } else {
                     val previewCtx = LocalContext.current
-                    val previewHtml = remember(activeScenes, selectedStyle, totalDurMs) {
-                        MotionHtmlDirector.buildHtmlDocument(
+                    val customDirectHtml = remember(generatedScenes, scriptSourceMode, directScriptText) {
+                        if (generatedScenes.isEmpty() &&
+                            scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT &&
+                            DirectStoryboardParser.looksLikeHtmlOrSvgInput(directScriptText)
+                        ) {
+                            DirectStoryboardParser.buildCustomHtmlDocumentIfNeeded(directScriptText)
+                        } else {
+                            null
+                        }
+                    }
+                    val previewHtml = remember(customDirectHtml, activeScenes, selectedStyle, totalDurMs) {
+                        customDirectHtml ?: MotionHtmlDirector.buildHtmlDocument(
                             scenes = activeScenes,
                             style = selectedStyle,
                             totalDurationMs = totalDurMs,
-                            includeAiBackdrops = false,
+                            includeAiBackdrops = activeScenes.any { it.backdropBitmap != null },
                             context = previewCtx
                         )
                     }

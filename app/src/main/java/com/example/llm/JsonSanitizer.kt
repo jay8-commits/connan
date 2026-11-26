@@ -572,6 +572,12 @@ object JsonSanitizer {
             emptyList()
         }
 
+        val rawCustomSvg = obj.optString("custom_svg", "")
+            .ifBlank { obj.optString("scene_svg", "") }
+            .ifBlank { obj.optString("svg_markup", "") }
+            .ifBlank { obj.optString("svg", "") }
+        val sanitizedCustomSvg = sanitizeCustomSvg(rawCustomSvg)
+
         return SceneScript(
             sceneId = sceneId,
             tagalogNarration = narration,
@@ -617,7 +623,56 @@ object JsonSanitizer {
             hasCharacter = hasCharacter,
             lightingState = lightingState,
             hudUnit = hudUnit,
-            sfxCues = sfxCues
+            sfxCues = sfxCues,
+            customSvg = sanitizedCustomSvg
         )
+    }
+
+    private val SVG_DRAW_TAGS = listOf(
+        "<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line", "<g", "<text"
+    )
+    private val UNSAFE_EVENT_ATTR_REGEX = Regex("\\son[a-z]+\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)", RegexOption.IGNORE_CASE)
+    private val JAVASCRIPT_URI_REGEX = Regex("javascript\\s*:", RegexOption.IGNORE_CASE)
+
+    fun sanitizeCustomSvg(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+
+        val cleaned = stripUnsafeTagBlock(stripUnsafeTagBlock(trimmed, "script"), "foreignObject")
+            .replace(UNSAFE_EVENT_ATTR_REGEX, "")
+            .replace(JAVASCRIPT_URI_REGEX, "blocked:")
+            .trim()
+
+        val lower = cleaned.lowercase()
+        val hasSvgPrimitives = SVG_DRAW_TAGS.any { lower.contains(it) }
+        if (!hasSvgPrimitives) return ""
+
+        val svgStart = lower.indexOf("<svg")
+        val svgEnd = lower.lastIndexOf("</svg>")
+        if (svgStart >= 0 && svgEnd > svgStart) {
+            return cleaned.substring(svgStart, svgEnd + "</svg>".length).trim()
+        }
+
+        // Bare SVG primitives without outer <svg> wrapper
+        return "<svg viewBox=\"0 0 1080 1920\" xmlns=\"http://www.w3.org/2000/svg\">$cleaned</svg>"
+    }
+
+    private fun stripUnsafeTagBlock(input: String, tagName: String): String {
+        val openNeedle = "<$tagName"
+        val closeNeedle = "</$tagName>"
+        var current = input
+        while (true) {
+            val lower = current.lowercase()
+            val start = lower.indexOf(openNeedle.lowercase())
+            if (start < 0) break
+            val end = lower.indexOf(closeNeedle.lowercase(), start)
+            current = if (end >= 0) {
+                current.removeRange(start, end + closeNeedle.length)
+            } else {
+                val closeAngle = current.indexOf('>', start)
+                if (closeAngle >= 0) current.removeRange(start, closeAngle + 1) else current.take(start)
+            }
+        }
+        return current
     }
 }

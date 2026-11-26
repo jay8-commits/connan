@@ -180,7 +180,9 @@ class WebViewFrameRenderer private constructor(
     private suspend fun awaitReadyFlag(wv: WebView) {
         for (attempt in 0 until 20) {
             val ready = suspendCancellableCoroutine<Boolean> { cont ->
-                wv.evaluateJavascript("Boolean(window.__toonforgeReady)") { raw ->
+                wv.evaluateJavascript(
+                    "Boolean(window.__toonforgeReady) || (document.readyState === 'complete' && (typeof window.seekToTime === 'function' || (document.body && document.body.children.length > 0)))"
+                ) { raw ->
                     if (cont.isActive) cont.resume(raw == "true")
                 }
             }
@@ -194,7 +196,7 @@ class WebViewFrameRenderer private constructor(
             val wv = webView ?: return@withContext false
             val formattedSec = String.format(java.util.Locale.US, "%.6f", seconds.coerceAtLeast(0.0))
             suspendCancellableCoroutine<Unit> { cont ->
-                wv.evaluateJavascript("window.seekToTime($formattedSec);") {
+                wv.evaluateJavascript("if (typeof window.seekToTime === 'function') window.seekToTime($formattedSec);") {
                     if (cont.isActive) cont.resume(Unit)
                 }
             }

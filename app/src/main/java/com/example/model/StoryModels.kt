@@ -501,7 +501,8 @@ data class SceneScript(
     val hasCharacter: Boolean? = null,
     val lightingState: LightingState = LightingState.AUTO,
     val hudUnit: String = "%",
-    val sfxCues: List<String> = emptyList()
+    val sfxCues: List<String> = emptyList(),
+    val customSvg: String = ""
 ) {
     val effectiveVisualDescription: String
         get() = visualDescription.ifBlank { backgroundPrompt }

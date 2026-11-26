@@ -1082,7 +1082,8 @@ MANDATORY DURATION & LENGTH CONTRACT:
                 append("- Every tagalog_narration MUST be natural conversational Filipino/Tagalog with >= $MIN_WORDS_PER_NARRATION words AND >= $MIN_CHARS_PER_NARRATION chars.\n")
                 append("- Every visual_description MUST have >= $MIN_WORDS_PER_VISUAL_DESCRIPTION vivid English words detailing (1) main subject & exact action/pose, (2) facial expression & hand prop, (3) specific environment/foreground/background elements, and (4) lighting/atmosphere. NEVER write 'generic', 'simple background', or 'etc'.\n")
                 append("- Consecutive scenes MUST NOT repeat the same camera_motion, character_pose, or shot_framing (never use STATIC).\n")
-                append("- TOPIC-FIRST RULE: Derive 100% of characters, wardrobe, environment_theme, props, cutaway_diagram_prompt, and diagrams strictly from the Topic.\n\n")
+                append("- TOPIC-FIRST RULE: Derive 100% of characters, wardrobe, environment_theme, props, cutaway_diagram_prompt, and diagrams strictly from the Topic.\n")
+                append("- BESPOKE SVG ARTWORK (`custom_svg`): Whenever possible, output a complete self-contained `<svg viewBox=\"0 0 1080 1920\" xmlns=\"http://www.w3.org/2000/svg\">...</svg>` in `custom_svg` that literally illustrates the exact scene in `visual_description` using layered paths, gradients, crisp `2.5px` dark outlines (`#141821`), and animated `<circle class=\"flow-pulse\" data-path=\"#flow-1\" .../>` flow pulses.\n\n")
                 if (isFullScript) {
                     append(buildDurationContractBlock(budget))
                     append("\n\n")
@@ -1132,6 +1133,7 @@ MANDATORY DURATION & LENGTH CONTRACT:
                 append("- \"tagalog_narration\": >= $MIN_WORDS_PER_NARRATION words and >= $MIN_CHARS_PER_NARRATION chars of natural Tagalog.\n")
                 append("- \"visual_description\": >= $MIN_WORDS_PER_VISUAL_DESCRIPTION words explicitly covering (1) main subject & exact action/pose, (2) facial expression & hand prop, (3) specific environment/foreground/background elements, (4) lighting/atmosphere; zero 'generic', 'simple background', or 'etc'.\n")
                 append("- Valid non-STATIC \"camera_motion\", explicit \"character_pose\", and explicit \"shot_framing\" distinct from adjacent scenes.\n")
+                append("- Optional \"custom_svg\": complete `<svg viewBox=\"0 0 1080 1920\" xmlns=\"http://www.w3.org/2000/svg\">...</svg>` literally illustrating `visual_description` with layered paths, gradients, `#141821` outlines, and `.flow-pulse` circles (no `<script>`).\n")
                 append("\nReturn valid json with ONLY scene_id(s): ${targetSceneIds.joinToString(", ")} inside {\"scenes\": [...]}.\n")
                 append(STRICT_JSON_OUTPUT_FOOTER)
             }
@@ -1347,6 +1349,7 @@ MANDATORY DURATION & LENGTH CONTRACT:
                         if (s.flowDirection.name != "LEFT_TO_RIGHT") put("flow_direction", s.flowDirection.name)
                         if (s.cutawaySubject != null) put("cutaway_subject", s.cutawaySubject.name)
                         if (s.cutawayStage != null) put("cutaway_stage", s.cutawayStage.name)
+                        if (s.customSvg.isNotBlank()) put("custom_svg", s.customSvg)
                     }
                 )
             }

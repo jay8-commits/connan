@@ -160,6 +160,7 @@ Optional cinematic, wardrobe, cutaway & data-driven diagram keys per scene objec
 - "cutaway_subject": optional (BRAIN_NEURON_SIGNAL | SKIN_WOUND_HEALING | TOOTH_ENAMEL_DECAY | HEART_ARTERY_FLOW | BATTERY_CIRCUIT_CHARGE | SOIL_ROOT_GROWTH) (ONLY if topic matches!)
 - "cutaway_stage": one of SURFACE_ZOOM_IN | CROSS_SECTION_DAMAGE | IMMUNE_CLEANUP | STRAND_AND_VESSEL_REBUILD | CELL_MIGRATION_CLOSE | SURFACE_HEALED_ZOOM_OUT
 - "pointer_callouts": JSON array of 1–2 objects each with "label" (e.g. "TOPIC FEATURE"), "x" (35..235), and "y" (115..335) targeting features on a 270x480 cross-section
+- "custom_svg": RECOMMENDED bespoke scene artwork — a complete, self-contained `<svg viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">...</svg>` string that literally draws the exact objects, props, cutaways, or scenes described in `visual_description` using layered vector `<path>` shapes, `<linearGradient>`/`<radialGradient>` shading, crisp `2.5px` dark outlines (`#141821`), and optional animated `<circle class="flow-pulse" data-path="#flow-id" r="7" fill="#38BDF8"/>` pulses along `<path id="flow-id" .../>` paths (never output `<script>` inside `custom_svg`, never draw generic Play buttons or empty placeholder boxes).
         """.trimIndent()
     }
 

@@ -397,6 +397,7 @@ object MotionHtmlDirector {
                         put("titleCard", buildSceneTitleCard(sc, idx))
                         put("speechBubble", buildSpeechBubbleText(sc))
                         put("backdropUri", backdropDataUri)
+                        put("customSvg", sc.customSvg)
 
                         val pcArr = JSONArray()
                         sc.pointerCallouts.forEach { pc ->
@@ -566,11 +567,13 @@ object MotionHtmlDirector {
   <g clip-path="url(#stage-clip)">
     <!-- Camera Transform Group -->
     <g id="camera-root">
-      <image id="ai-backdrop-img" x="-80" y="-120" width="1240" height="2160" preserveAspectRatio="xMidYMid slice" opacity="0" />
+      <image id="ai-backdrop-img" x="-54" y="-96" width="1188" height="2112" preserveAspectRatio="xMidYMid slice" opacity="0" />
       <g id="bg-far"></g>
       <g id="bg-mid"></g>
       <g id="bg-props"></g>
+      <g id="custom-svg-layer"></g>
       <g id="atmospheric-beams"></g>
+      <g id="flow-overlay-layer"></g>
       <g id="world-fx-layer"></g>
       <g id="cast-layer"></g>
       <g id="fg-silhouette"></g>
@@ -606,7 +609,9 @@ object MotionHtmlDirector {
   const elBgFar = document.getElementById("bg-far");
   const elBgMid = document.getElementById("bg-mid");
   const elBgProps = document.getElementById("bg-props");
+  const elCustomSvg = document.getElementById("custom-svg-layer");
   const elBeams = document.getElementById("atmospheric-beams");
+  const elFlowOverlay = document.getElementById("flow-overlay-layer");
   const elFx = document.getElementById("world-fx-layer");
   const elCast = document.getElementById("cast-layer");
   const elFg = document.getElementById("fg-silhouette");
@@ -687,147 +692,173 @@ object MotionHtmlDirector {
     }
   }
 
+  function injectCustomSvg(svgText) {
+    clearNode(elCustomSvg);
+    if (!svgText) return false;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, "image/svg+xml");
+      const root = doc && doc.documentElement;
+      if (!root || root.nodeName.toLowerCase() === "parsererror") return false;
+      const imported = document.importNode(root, true);
+      imported.setAttribute("x", "0");
+      imported.setAttribute("y", "0");
+      imported.setAttribute("width", "1080");
+      imported.setAttribute("height", "1920");
+      if (!imported.getAttribute("viewBox")) {
+        imported.setAttribute("viewBox", "0 0 1080 1920");
+      }
+      if (!imported.getAttribute("preserveAspectRatio")) {
+        imported.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      }
+      if (typeof imported.pauseAnimations === "function") {
+        try { imported.pauseAnimations(); } catch (e) {}
+      }
+      elCustomSvg.appendChild(imported);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function renderEnvironment(scene) {
     clearNode(elBgFar);
     clearNode(elBgMid);
     clearNode(elBgProps);
+    clearNode(elCustomSvg);
     clearNode(elBeams);
+    clearNode(elFlowOverlay);
     clearNode(elFg);
 
     const pal = themePalette(scene.theme);
+    const hasCustomSvg = !!(scene.customSvg && scene.customSvg.trim().length > 0 && injectCustomSvg(scene.customSvg));
+    const hasBackdrop = !hasCustomSvg && !!(scene.backdropUri && scene.backdropUri.trim().length > 0);
 
-    if (scene.backdropUri) {
-      elBackdropImg.setAttribute("href", scene.backdropUri);
-      elBackdropImg.setAttribute("opacity", "0.42");
-    } else {
+    if (hasCustomSvg) {
+      // Tier 1: Bespoke LLM-generated self-contained SVG fills the stage unobstructed
       elBackdropImg.setAttribute("opacity", "0");
-    }
-
-    // 1. Far plane sky / backdrop
-    svgEl("rect", { x: -160, y: -160, width: 1400, height: 2240, fill: pal.sky, opacity: scene.backdropUri ? "0.45" : "1" }, elBgFar);
-
-    if (PRESET === "KINETIC_DIAGRAM") {
-      // Swiss architectural grid
-      for (let gx = 0; gx <= 1080; gx += 120) {
-        svgEl("line", { x1: gx, y1: 0, x2: gx, y2: 1920, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.10 }, elBgFar);
-      }
-      for (let gy = 0; gy <= 1920; gy += 120) {
-        svgEl("line", { x1: 0, y1: gy, x2: 1080, y2: gy, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.10 }, elBgFar);
-      }
-      svgEl("circle", { cx: 540, cy: 760, r: 420, fill: "none", stroke: pal.accent, "stroke-width": 2, opacity: 0.16, "stroke-dasharray": "12 10" }, elBgFar);
-    }
-
-    // 2. Mid plane architectural room / 2.5D faceted hills
-    if (PRESET === "STYLIZED_25D") {
-      // Layered low-poly faceted hills + perspective road
-      svgEl("polygon", { points: "-160,1180 240,860 640,1040 1240,820 1240,1520 -160,1520", fill: pal.wall2, opacity: "0.88" }, elBgMid);
-      svgEl("polygon", { points: "-160,1260 360,980 780,1160 1240,940 1240,1580 -160,1580", fill: pal.wall, opacity: "0.94" }, elBgMid);
-      // Perspective ground + road
-      svgEl("rect", { x: -160, y: 1240, width: 1400, height: 840, fill: pal.floor }, elBgMid);
-      svgEl("polygon", { points: "470,1240 610,1240 940,1920 140,1920", fill: "#1E293B", opacity: "0.85" }, elBgMid);
-      svgEl("line", { x1: 540, y1: 1250, x2: 540, y2: 1920, stroke: "#FACC15", "stroke-width": 8, "stroke-dasharray": "42 28", opacity: "0.7" }, elBgMid);
+      elBackdropImg.removeAttribute("href");
+      svgEl("rect", { x: -160, y: -160, width: 1400, height: 2240, fill: "#080B12" }, elBgFar);
+    } else if (hasBackdrop) {
+      // Tier 2: Full-bleed 2D flat vector illustration (opacity=1, zero wall/city boxes covering it)
+      elBackdropImg.setAttribute("href", scene.backdropUri);
+      elBackdropImg.setAttribute("opacity", "1");
     } else {
-      // Rich interior/exterior architectural backdrop + floor plane
-      const filterAttr = PRESET === "PAPER_DIORAMA" ? { filter: "url(#paper-grain)" } : {};
-      const roomGrp = svgEl("g", filterAttr, elBgMid);
-      svgEl("rect", { x: -140, y: -120, width: 1360, height: 1400, fill: pal.wall, opacity: scene.backdropUri ? "0.35" : "0.94" }, roomGrp);
-      // Architectural paneling & trim
-      svgEl("rect", { x: -140, y: 1240, width: 1360, height: 800, fill: pal.floor }, roomGrp);
-      svgEl("rect", { x: -140, y: 1232, width: 1360, height: 18, fill: pal.wall2 }, roomGrp);
+      // Tier 3: Clean atmospheric gradient stage + volumetric rays (zero generic bedrooms/city blocks)
+      elBackdropImg.setAttribute("opacity", "0");
+      elBackdropImg.removeAttribute("href");
+      svgEl("rect", { x: -160, y: -160, width: 1400, height: 2240, fill: pal.sky }, elBgFar);
 
-      // Theme-specific rich SVG room details (zero random confetti)
-      renderThemeDetails(scene.theme, pal, elBgProps);
+      if (PRESET === "KINETIC_DIAGRAM") {
+        for (let gx = 0; gx <= 1080; gx += 120) {
+          svgEl("line", { x1: gx, y1: 0, x2: gx, y2: 1920, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
+        }
+        for (let gy = 0; gy <= 1920; gy += 120) {
+          svgEl("line", { x1: 0, y1: gy, x2: 1080, y2: gy, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
+        }
+      } else {
+        const filterAttr = PRESET === "PAPER_DIORAMA" ? { filter: "url(#paper-grain)" } : {};
+        const stageGrp = svgEl("g", filterAttr, elBgMid);
+        svgEl("ellipse", { cx: 540, cy: 1320, rx: 680, ry: 280, fill: pal.floor, opacity: "0.52" }, stageGrp);
+        svgEl("circle", { cx: 540, cy: 760, r: 440, fill: pal.accent, opacity: "0.08" }, stageGrp);
+      }
     }
 
-    // 3. Atmospheric volumetric light shafts & dust motes (strictly inside beam polygon)
-    if (PRESET === "ATMOSPHERIC_2D" || PRESET === "PAPER_DIORAMA") {
+    // Subtle atmospheric volumetric light shafts & dust motes (kept light when custom artwork is active)
+    if (!hasCustomSvg && (PRESET === "ATMOSPHERIC_2D" || PRESET === "PAPER_DIORAMA")) {
+      const beamAlpha = hasBackdrop ? "0.28" : (PRESET === "ATMOSPHERIC_2D" ? "0.78" : "0.40");
       svgEl("polygon", {
         points: "690,120 960,120 620,1480 80,1480",
         fill: pal.beam,
-        opacity: PRESET === "ATMOSPHERIC_2D" ? "0.95" : "0.45"
+        opacity: beamAlpha
       }, elBeams);
       svgEl("polygon", {
         points: "120,0 310,0 590,1420 260,1420",
         fill: pal.beam,
-        opacity: "0.35"
+        opacity: hasBackdrop ? "0.14" : "0.30"
       }, elBeams);
 
-      // 10 subtle deterministic dust motes strictly confined along the diagonal shaft axis
       for (let i = 0; i < 10; i++) {
         svgEl("circle", {
           id: "dust-mote-" + i,
           cx: 420 + i * 32,
           cy: 340 + i * 88,
-          r: 3 + (i % 3) * 1.6,
+          r: 3 + (i % 3) * 1.4,
           fill: "#FFFBEB",
-          opacity: "0.55"
+          opacity: hasBackdrop ? "0.35" : "0.50"
         }, elBeams);
       }
     }
 
-    // 4. Foreground depth silhouettes (out-of-focus framing edge)
+    // Soft edge vignette silhouettes
     svgEl("path", {
-      d: "M-80,1920 L-80,1520 Q40,1560 95,1920 Z",
+      d: "M-80,1920 L-80,1580 Q35,1630 85,1920 Z",
       fill: "#05070E",
-      opacity: "0.52"
+      opacity: hasCustomSvg ? "0.22" : "0.42"
     }, elFg);
     svgEl("path", {
-      d: "M1160,1920 L1160,1560 Q1010,1620 970,1920 Z",
+      d: "M1160,1920 L1160,1600 Q1030,1660 985,1920 Z",
       fill: "#05070E",
-      opacity: "0.46"
+      opacity: hasCustomSvg ? "0.20" : "0.38"
     }, elFg);
   }
 
-  function renderThemeDetails(theme, pal, parent) {
-    const shadowClass = PRESET === "PAPER_DIORAMA" ? "paper-shadow" : "";
-    if (theme === "COZY_BEDROOM_MIDNIGHT" || theme === "MODERN_OFFICE_DESK") {
-      // Shaded window with moon/sky & blinds + desk
-      const win = svgEl("g", { class: shadowClass }, parent);
-      svgEl("rect", { x: 640, y: 170, width: 290, height: 360, rx: 14, fill: pal.isNight ? "#0B162C" : "#7DD3FC", stroke: pal.wall2, "stroke-width": 16 }, win);
-      svgEl("line", { x1: 785, y1: 170, x2: 785, y2: 530, stroke: pal.wall2, "stroke-width": 12 }, win);
-      svgEl("line", { x1: 640, y1: 350, x2: 930, y2: 350, stroke: pal.wall2, "stroke-width": 12 }, win);
-      if (pal.isNight) {
-        svgEl("circle", { cx: 855, cy: 250, r: 34, fill: "#FEF08A" }, win);
+  function renderAnimatedFlowOverlay(scene, sceneElapsed, tSec) {
+    clearNode(elFlowOverlay);
+
+    // 1. Drive any .flow-pulse circles or SMIL animations embedded inside Tier 1 customSvg
+    const nestedSvg = elCustomSvg.querySelector("svg");
+    if (nestedSvg && typeof nestedSvg.setCurrentTime === "function") {
+      try { nestedSvg.setCurrentTime(sceneElapsed); } catch (e) {}
+    }
+    const customPulses = elCustomSvg.querySelectorAll(".flow-pulse");
+    for (let i = 0; i < customPulses.length; i++) {
+      const dot = customPulses[i];
+      const pathSel = dot.getAttribute("data-path") || "";
+      const targetPath = pathSel ? elCustomSvg.querySelector(pathSel) : null;
+      if (targetPath && typeof targetPath.getTotalLength === "function") {
+        const len = targetPath.getTotalLength();
+        if (len > 0) {
+          const speed = Number(dot.getAttribute("data-speed") || "0.45");
+          const offset = Number(dot.getAttribute("data-offset") || (i * 0.27));
+          let phase = (tSec * speed + offset) % 1;
+          if (phase < 0) phase += 1;
+          const pt = targetPath.getPointAtLength(phase * len);
+          dot.setAttribute("cx", pt.x.toFixed(1));
+          dot.setAttribute("cy", pt.y.toFixed(1));
+        }
       }
-      // Desk in midground
-      svgEl("rect", { x: 110, y: 1090, width: 860, height: 34, rx: 8, fill: "#78350F" }, win);
-      svgEl("rect", { x: 150, y: 1124, width: 32, height: 120, fill: "#451A03" }, win);
-      svgEl("rect", { x: 898, y: 1124, width: 32, height: 120, fill: "#451A03" }, win);
-      // Warm desk lamp
-      svgEl("rect", { x: 830, y: 1005, width: 12, height: 85, fill: "#CBD5E1" }, win);
-      svgEl("polygon", { points: "795,1005 875,1005 855,955 815,955", fill: pal.accent }, win);
-    } else if (theme === "SUNNY_MARKET_STREET" || theme === "DRAMATIC_SUNSET_CITY") {
-      // Stylized architectural silhouettes + market awning
-      const street = svgEl("g", { class: shadowClass }, parent);
-      svgEl("rect", { x: 60, y: 380, width: 210, height: 860, fill: pal.wall2, opacity: "0.7" }, street);
-      svgEl("rect", { x: 760, y: 310, width: 250, height: 930, fill: pal.wall2, opacity: "0.78" }, street);
-      // Warm glowing shop windows
-      for (let wy = 440; wy < 900; wy += 120) {
-        svgEl("rect", { x: 800, y: wy, width: 65, height: 60, rx: 6, fill: pal.accent, opacity: "0.65" }, street);
-        svgEl("rect", { x: 900, y: wy, width: 65, height: 60, rx: 6, fill: pal.accent, opacity: "0.45" }, street);
+    }
+
+    // 2. When using 2D flat vector backdrop (or cutaway/diagram flow), composite crisp SVG vector flow rails
+    if (!nestedSvg && (scene.backdropUri || !scene.hasCharacter)) {
+      const dir = scene.flowDirection || "LEFT_TO_RIGHT";
+      if (scene.pointerCallouts && scene.pointerCallouts.length > 0) {
+        const beatPulse = (sceneElapsed % 2.5) < 0.45 ? 1 + 0.08 * Math.sin(((sceneElapsed % 2.5) / 0.45) * Math.PI) : 1;
+        scene.pointerCallouts.forEach(function(pc) {
+          const px = clamp((pc.x / 270) * 1080, 180, 900);
+          const py = clamp((pc.y / 480) * 1920, 420, 1140);
+          const pg = svgEl("g", { transform: "translate(" + px.toFixed(0) + "," + py.toFixed(0) + ") scale(" + beatPulse.toFixed(3) + ")" }, elFlowOverlay);
+          svgEl("circle", { cx: 0, cy: 0, r: 12, fill: "#22D3EE", stroke: "#141821", "stroke-width": "2.5" }, pg);
+          svgEl("line", { x1: 0, y1: -12, x2: 0, y2: -48, stroke: "#22D3EE", "stroke-width": "3.5" }, pg);
+          const bw = Math.min(340, Math.max(180, pc.label.length * 16 + 44));
+          svgEl("rect", { x: -bw / 2, y: -90, width: bw, height: 42, rx: 10, fill: "#0B1120", stroke: "#22D3EE", "stroke-width": "2.5" }, pg);
+          const pt = svgEl("text", { x: 0, y: -63, "text-anchor": "middle", fill: "#F8FAFC", "font-size": "22", class: "diagram-txt" }, pg);
+          pt.textContent = pc.label.toUpperCase();
+        });
+      } else if (dir === "UP" || dir === "DOWN" || dir === "RADIAL_BURST" || PRESET === "KINETIC_DIAGRAM") {
+        const x1 = 200, x2 = 880, yMid = 1045;
+        const dPath = dir === "UP"
+          ? "M540,1080 L540,560"
+          : (dir === "DOWN" ? "M540,560 L540,1080" : "M" + x1 + "," + yMid + " Q540," + (yMid - 75) + " " + x2 + "," + yMid);
+        svgEl("path", { d: dPath, stroke: "#38BDF8", "stroke-width": "4", "stroke-dasharray": "14 10", fill: "none", opacity: "0.45" }, elFlowOverlay);
+        for (let k = 0; k < 3; k++) {
+          const frac = (tSec * 0.45 + k * 0.33) % 1;
+          const px = dir === "UP" || dir === "DOWN" ? 540 : lerp(x1, x2, frac);
+          const py = dir === "UP" ? lerp(1080, 560, frac) : (dir === "DOWN" ? lerp(560, 1080, frac) : yMid - Math.sin(frac * Math.PI) * 38);
+          svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: 7.5, fill: "#FFD60A", stroke: "#141821", "stroke-width": "2", opacity: "0.88" }, elFlowOverlay);
+        }
       }
-      // Sari-sari / market awning
-      svgEl("polygon", { points: "40,860 390,860 430,940 20,940", fill: "#EF4444" }, street);
-      svgEl("rect", { x: 50, y: 940, width: 340, height: 300, fill: "#1E293B" }, street);
-    } else if (theme === "BANK_VAULT_FINANCE") {
-      const vault = svgEl("g", { class: shadowClass }, parent);
-      svgEl("circle", { cx: 810, cy: 520, r: 210, fill: "#115E59", stroke: "#FACC15", "stroke-width": 16, opacity: "0.65" }, vault);
-      svgEl("circle", { cx: 810, cy: 520, r: 120, fill: "none", stroke: "#FDE047", "stroke-width": 10, "stroke-dasharray": "28 18", opacity: "0.7" }, vault);
-      svgEl("line", { x1: 810, y1: 420, x2: 810, y2: 620, stroke: "#FACC15", "stroke-width": 14, "stroke-linecap": "round" }, vault);
-      svgEl("line", { x1: 710, y1: 520, x2: 910, y2: 520, stroke: "#FACC15", "stroke-width": 14, "stroke-linecap": "round" }, vault);
-    } else if (theme === "CLASSROOM_CHALKBOARD") {
-      const board = svgEl("g", { class: shadowClass }, parent);
-      svgEl("rect", { x: 130, y: 310, width: 820, height: 420, rx: 14, fill: "#113026", stroke: "#854D0E", "stroke-width": 20 }, board);
-      svgEl("rect", { x: 160, y: 710, width: 760, height: 18, fill: "#A16207" }, board);
-    } else if (theme === "BRIGHT_MORNING_KITCHEN") {
-      const kit = svgEl("g", { class: shadowClass }, parent);
-      svgEl("rect", { x: 640, y: 260, width: 300, height: 320, rx: 12, fill: "#BAE6FD", stroke: "#FFFFFF", "stroke-width": 16 }, kit);
-      svgEl("rect", { x: 80, y: 980, width: 920, height: 260, rx: 12, fill: "#D97706", opacity: "0.88" }, kit);
-      svgEl("rect", { x: 60, y: 955, width: 960, height: 36, rx: 10, fill: "#F8FAFC" }, kit);
-    } else {
-      const arch = svgEl("g", { class: shadowClass }, parent);
-      svgEl("rect", { x: 120, y: 260, width: 320, height: 460, rx: 20, fill: pal.wall2, opacity: "0.55" }, arch);
-      svgEl("rect", { x: 640, y: 220, width: 320, height: 500, rx: 20, fill: pal.wall2, opacity: "0.45" }, arch);
     }
   }
 
@@ -1201,17 +1232,18 @@ object MotionHtmlDirector {
   }
 
   function renderFullSceneFocalProp(scene, sceneElapsed, tSec) {
-    // Rich full-bleed vector centerpiece when no character is present (100% environment/object focus)
+    // Never draw anything generic on top of bespoke SVG or 2D flat vector backdrop artwork
+    if (scene.customSvg || scene.backdropUri) return;
+
     const bob = Math.sin(tSec * 2.2) * 8;
     const enterSpring = springOvershoot(clamp(sceneElapsed / 0.48, 0, 1));
-    const fg = svgEl("g", {
-      id: "full-scene-focal",
-      transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
-      class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
-    }, elCast);
 
     if (scene.theme === "BANK_VAULT_FINANCE" || scene.handProp === "MONEY_BAG") {
-      // Glowing Golden Vault Pedestal & Coin Stack (no standing host character)
+      const fg = svgEl("g", {
+        id: "full-scene-focal",
+        transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
+        class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
+      }, elCast);
       svgEl("ellipse", { cx: 0, cy: 175, rx: 190, ry: 32, fill: "#020617", opacity: "0.48" }, fg);
       svgEl("rect", { x: -135, y: -95, width: 270, height: 240, rx: 28, fill: "#0F766E", stroke: "#141821", "stroke-width": "5" }, fg);
       svgEl("circle", { cx: 0, cy: 25, r: 72, fill: "#FACC15", stroke: "#141821", "stroke-width": "5" }, fg);
@@ -1219,7 +1251,11 @@ object MotionHtmlDirector {
       const pt = svgEl("text", { x: 0, y: 42, "text-anchor": "middle", fill: "#78350F", "font-size": "52", class: "title-card-txt" }, fg);
       pt.textContent = "₱";
     } else if (scene.theme === "MODERN_OFFICE_DESK" || scene.handProp === "PHONE_SCREEN") {
-      // Large Illuminated Workstation / Analytics Display
+      const fg = svgEl("g", {
+        id: "full-scene-focal",
+        transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
+        class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
+      }, elCast);
       svgEl("ellipse", { cx: 0, cy: 180, rx: 210, ry: 30, fill: "#020617", opacity: "0.45" }, fg);
       svgEl("rect", { x: -175, y: -125, width: 350, height: 225, rx: 18, fill: "#0F172A", stroke: "#38BDF8", "stroke-width": "5" }, fg);
       svgEl("rect", { x: -152, y: -102, width: 304, height: 178, rx: 10, fill: "#1E293B" }, fg);
@@ -1234,13 +1270,8 @@ object MotionHtmlDirector {
       }
       svgEl("rect", { x: -34, y: 100, width: 68, height: 42, fill: "#475569" }, fg);
       svgEl("rect", { x: -95, y: 138, width: 190, height: 18, rx: 9, fill: "#64748B" }, fg);
-    } else {
-      // High-Craft Vector Scene Emblem / Kinetic Focal Core
-      svgEl("ellipse", { cx: 0, cy: 175, rx: 180, ry: 28, fill: "#020617", opacity: "0.42" }, fg);
-      svgEl("circle", { cx: 0, cy: 15, r: 128, fill: "#1E293B", stroke: "#38BDF8", "stroke-width": "5" }, fg);
-      svgEl("circle", { cx: 0, cy: 15, r: 92, fill: "#0F172A", stroke: "#FFD60A", "stroke-width": "3.5", "stroke-dasharray": "18 12" }, fg);
-      svgEl("polygon", { points: "-28,-30 48,15 -28,60", fill: "#FFD60A", stroke: "#141821", "stroke-width": "4" }, fg);
     }
+    // Zero generic Play-button fallback in center screen.
   }
 
   function renderCast(scene, sceneElapsed, tSec) {
@@ -1429,11 +1460,12 @@ object MotionHtmlDirector {
 
     applyCameraMotion(scene, sceneElapsed, sceneDur, tSec);
     animateDustMotes(tSec);
+    renderAnimatedFlowOverlay(scene, sceneElapsed, tSec);
     renderWorldFx(scene, tSec);
     renderCast(scene, sceneElapsed, tSec);
     renderHudAndDiagrams(scene, sceneElapsed, sceneDur, tSec);
     renderViralCaptions(scene, tSec);
-    elVignette.setAttribute("opacity", PRESET === "ATMOSPHERIC_2D" ? "0.95" : "0.52");
+    elVignette.setAttribute("opacity", PRESET === "ATMOSPHERIC_2D" ? "0.85" : "0.45");
     return "ok";
   };
 

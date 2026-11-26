@@ -20,7 +20,9 @@ import org.json.JSONObject
 data class DirectParseResult(
     val scenes: List<SceneScript>,
     val providerLabel: String,
-    val isJsonFormat: Boolean
+    val isJsonFormat: Boolean,
+    val customHtmlDocument: String? = null,
+    val isCustomHtmlOrSvg: Boolean = false
 )
 
 /**
@@ -132,9 +134,129 @@ object DirectStoryboardParser {
 }
     """.trimIndent()
 
+    fun stripCodeFenceIfNeeded(rawInput: String): String {
+        var s = rawInput.trim()
+        if (s.startsWith("```")) {
+            val firstNewline = s.indexOf('\n')
+            s = if (firstNewline >= 0) s.substring(firstNewline + 1) else s.removePrefix("```")
+            val lastFence = s.lastIndexOf("```")
+            if (lastFence >= 0) {
+                s = s.substring(0, lastFence)
+            }
+            s = s.trim()
+        }
+        return s
+    }
+
+    fun looksLikeHtmlOrSvgInput(rawInput: String): Boolean {
+        val cleaned = stripCodeFenceIfNeeded(rawInput).trimStart()
+        if (cleaned.isEmpty()) return false
+        return cleaned.startsWith("<!DOCTYPE html", ignoreCase = true) ||
+            cleaned.startsWith("<html", ignoreCase = true) ||
+            cleaned.startsWith("<svg", ignoreCase = true)
+    }
+
+    fun buildCustomHtmlDocumentIfNeeded(rawInput: String): String {
+        val cleaned = stripCodeFenceIfNeeded(rawInput).trim()
+        if (cleaned.startsWith("<!DOCTYPE html", ignoreCase = true) ||
+            cleaned.startsWith("<html", ignoreCase = true)
+        ) {
+            return cleaned
+        }
+
+        val sanitizedSvg = JsonSanitizer.sanitizeCustomSvg(cleaned).ifBlank { cleaned }
+        val normalizedSvg = ensureFullBleedSvgAttributes(sanitizedSvg)
+
+        return """
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1080,height=1920,initial-scale=1.0,user-scalable=no" />
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+    background: #080B12;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  svg {
+    width: 1080px;
+    height: 1920px;
+    display: block;
+  }
+</style>
+</head>
+<body>
+$normalizedSvg
+<script>
+(function() {
+  function initSvgDeterminism() {
+    var rootSvg = document.querySelector('svg');
+    if (rootSvg && typeof rootSvg.pauseAnimations === 'function') {
+      try { rootSvg.pauseAnimations(); } catch (e) {}
+    }
+    window.seekToTime = function(seconds) {
+      var t = Number(seconds) || 0;
+      if (rootSvg && typeof rootSvg.setCurrentTime === 'function') {
+        try { rootSvg.setCurrentTime(t); } catch (e) {}
+      }
+      var pulses = document.querySelectorAll('.flow-pulse');
+      for (var i = 0; i < pulses.length; i++) {
+        var dot = pulses[i];
+        var pathSel = dot.getAttribute('data-path') || '';
+        var targetPath = pathSel ? document.querySelector(pathSel) : null;
+        if (targetPath && typeof targetPath.getTotalLength === 'function') {
+          var len = targetPath.getTotalLength();
+          if (len > 0) {
+            var speed = Number(dot.getAttribute('data-speed') || '0.45');
+            var offset = Number(dot.getAttribute('data-offset') || (i * 0.27));
+            var phase = (t * speed + offset) % 1;
+            if (phase < 0) phase += 1;
+            var pt = targetPath.getPointAtLength(phase * len);
+            dot.setAttribute('cx', pt.x.toFixed(1));
+            dot.setAttribute('cy', pt.y.toFixed(1));
+          }
+        }
+      }
+    };
+    window.seekToTime(0);
+    window.__toonforgeReady = true;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSvgDeterminism);
+  } else {
+    initSvgDeterminism();
+  }
+})();
+</script>
+</body>
+</html>
+        """.trimIndent()
+    }
+
+    private fun ensureFullBleedSvgAttributes(svgMarkup: String): String {
+        val start = svgMarkup.indexOf("<svg", ignoreCase = true)
+        if (start < 0) return svgMarkup
+        val closeAngle = svgMarkup.indexOf('>', start)
+        if (closeAngle < 0) return svgMarkup
+        val openTag = svgMarkup.substring(start, closeAngle)
+        val hasViewBox = openTag.contains("viewBox", ignoreCase = true)
+        val extra = if (hasViewBox) "" else " viewBox=\"0 0 1080 1920\""
+        return svgMarkup.substring(0, closeAngle) + extra + svgMarkup.substring(closeAngle)
+    }
+
     fun looksLikeJsonInput(rawInput: String): Boolean {
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return false
+        if (looksLikeHtmlOrSvgInput(trimmed)) return false
         if (!trimmed.contains('{') && !trimmed.contains('[')) return false
 
         val candidateSpaces = JsonSanitizer.stripThinkAndMarkdownFences(trimmed)
@@ -182,7 +304,21 @@ object DirectStoryboardParser {
     ): DirectParseResult {
         val trimmed = rawInput.trim()
         require(trimmed.isNotEmpty()) {
-            "Enter or import a JSON storyboard or Tagalog script first."
+            "Enter or import a JSON, HTML/SVG storyboard, or Tagalog script first."
+        }
+
+        if (looksLikeHtmlOrSvgInput(trimmed)) {
+            val cleanedMarkup = stripCodeFenceIfNeeded(trimmed).trim()
+            val isRawSvg = cleanedMarkup.startsWith("<svg", ignoreCase = true)
+            val customHtmlDoc = buildCustomHtmlDocumentIfNeeded(cleanedMarkup)
+            val scenes = extractScenesFromCustomMarkup(cleanedMarkup, style, jsonSceneParser)
+            return DirectParseResult(
+                scenes = scenes,
+                providerLabel = if (isRawSvg) "Direct Custom SVG" else "Direct Custom HTML",
+                isJsonFormat = false,
+                customHtmlDocument = customHtmlDoc,
+                isCustomHtmlOrSvg = true
+            )
         }
 
         if (looksLikeJsonInput(trimmed)) {
@@ -230,6 +366,95 @@ object DirectStoryboardParser {
             providerLabel = "Direct Tagalog Script",
             isJsonFormat = false
         )
+    }
+
+    private fun extractScenesFromCustomMarkup(
+        cleanedMarkup: String,
+        style: AnimationStyle,
+        jsonSceneParser: (String) -> List<SceneScript>
+    ): List<SceneScript> {
+        val embeddedJson = extractEmbeddedStoryboardJson(cleanedMarkup)
+        if (!embeddedJson.isNullOrBlank()) {
+            val parsed = runCatching { jsonSceneParser(enrichMinimalJsonIfSupported(embeddedJson, style)) }
+                .getOrNull()
+                .orEmpty()
+            if (parsed.isNotEmpty()) return parsed
+        }
+
+        val extractedNarration = extractNarrationFromMarkup(cleanedMarkup)
+            .ifBlank { "Narito ang detalyadong animated visual explainer para mas madaling maunawaan ang kuwento." }
+
+        val cleanChunks = splitIntoBalancedScenes(extractedNarration)
+            .ifEmpty { listOf(TagalogNarrationValidator.cleanForTts(extractedNarration).ifBlank { extractedNarration }) }
+
+        return cleanChunks.mapIndexed { idx, line ->
+            SceneScript(
+                sceneId = idx + 1,
+                tagalogNarration = line,
+                backgroundPrompt = "${style.displayName} custom HTML SVG visual storyboard",
+                visualDescription = "Custom pasted HTML/SVG storyboard frame rendering full-bleed deterministic vector animation.",
+                cameraMotion = CAMERA_MOTION_ROTATION[idx % CAMERA_MOTION_ROTATION.size],
+                actorRole = ActorRole.NARRATOR,
+                actorAction = ActorAction.TALK_BOUNCE,
+                worldFx = WorldFx.NONE,
+                hasCharacter = false
+            )
+        }
+    }
+
+    private fun extractEmbeddedStoryboardJson(markup: String): String? {
+        val lower = markup.lowercase()
+        val idMarker = "storyboard-data"
+        val idIdx = lower.indexOf(idMarker)
+        if (idIdx < 0) return null
+        val gtIdx = markup.indexOf('>', idIdx)
+        if (gtIdx < 0) return null
+        val endScript = lower.indexOf("</script>", gtIdx)
+        if (endScript <= gtIdx) return null
+        return markup.substring(gtIdx + 1, endScript).trim()
+    }
+
+    private fun extractNarrationFromMarkup(markup: String): String {
+        val metaMarker = "toonforge-narration"
+        val lower = markup.lowercase()
+        val metaIdx = lower.indexOf(metaMarker)
+        if (metaIdx >= 0) {
+            val contentAttr = extractAttributeValue(markup, metaIdx, "content")
+            if (!contentAttr.isNullOrBlank()) return TagalogNarrationValidator.cleanForTts(contentAttr)
+        }
+
+        val dataNarrationIdx = lower.indexOf("data-narration")
+        if (dataNarrationIdx >= 0) {
+            val attrVal = extractAttributeValue(markup, dataNarrationIdx, "data-narration")
+            if (!attrVal.isNullOrBlank()) return TagalogNarrationValidator.cleanForTts(attrVal)
+        }
+
+        val commentNeedle = "<!-- narration:"
+        val commentIdx = lower.indexOf(commentNeedle)
+        if (commentIdx >= 0) {
+            val commentEnd = markup.indexOf("-->", commentIdx + commentNeedle.length)
+            if (commentEnd > commentIdx) {
+                val inside = markup.substring(commentIdx + commentNeedle.length, commentEnd).trim()
+                if (inside.isNotBlank()) return TagalogNarrationValidator.cleanForTts(inside)
+            }
+        }
+        return ""
+    }
+
+    private fun extractAttributeValue(markup: String, fromIndex: Int, attrName: String): String? {
+        val lower = markup.lowercase()
+        val attrPos = lower.indexOf(attrName.lowercase(), fromIndex)
+        if (attrPos < 0) return null
+        val eqPos = markup.indexOf('=', attrPos + attrName.length)
+        if (eqPos < 0) return null
+        var p = eqPos + 1
+        while (p < markup.length && markup[p].isWhitespace()) p++
+        if (p >= markup.length) return null
+        val quote = markup[p]
+        if (quote != '"' && quote != '\'') return null
+        val close = markup.indexOf(quote, p + 1)
+        if (close <= p) return null
+        return markup.substring(p + 1, close).trim()
     }
 
     fun parsePlainTagalogText(
@@ -451,6 +676,14 @@ object DirectStoryboardParser {
         text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
 
     fun deriveTopicTitle(rawInput: String): String {
+        if (looksLikeHtmlOrSvgInput(rawInput)) {
+            val narration = extractNarrationFromMarkup(stripCodeFenceIfNeeded(rawInput))
+            if (narration.isNotBlank()) {
+                return narration.split(Regex("\\s+")).filter { it.isNotBlank() }.take(6).joinToString(" ")
+            }
+            val isRawSvg = stripCodeFenceIfNeeded(rawInput).trimStart().startsWith("<svg", ignoreCase = true)
+            return if (isRawSvg) "Custom SVG Storyboard" else "Custom HTML Storyboard"
+        }
         val cleaned = if (looksLikeJsonInput(rawInput)) {
             extractFirstJsonStringValue(rawInput, "tagalog_narration").orEmpty()
         } else {
@@ -466,6 +699,10 @@ object DirectStoryboardParser {
     fun estimatePreviewSummary(rawInput: String): String {
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return "Empty"
+        if (looksLikeHtmlOrSvgInput(trimmed)) {
+            val isRawSvg = stripCodeFenceIfNeeded(trimmed).trimStart().startsWith("<svg", ignoreCase = true)
+            return if (isRawSvg) "Custom SVG • Ready" else "Custom HTML • Ready"
+        }
         if (looksLikeJsonInput(trimmed)) {
             val count = countKeyOccurrences(trimmed, "\"tagalog_narration\"")
             return if (count > 0) "JSON • $count scene(s)" else "JSON Storyboard"

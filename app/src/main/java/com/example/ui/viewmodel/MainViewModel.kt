@@ -637,7 +637,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
                 if (scriptDraft.isEmpty()) {
-                    showMessage("Paste a JSON storyboard or plain Tagalog script first")
+                    showMessage("Paste a JSON, HTML/SVG storyboard, or plain Tagalog script first")
                     return@launch
                 }
             } else if (currentTopic.isEmpty()) {

@@ -50,6 +50,8 @@ class AiHordeImageClient(
         val PRIMARY_BACKOFF_MS = longArrayOf(700L, 1600L)
         const val NO_PEOPLE_STAGE_SUFFIX =
             "empty foreground stage, background scenery only, NO people, NO humans, NO characters, NO faces"
+        const val FLAT_VECTOR_ILLUSTRATION_SUFFIX =
+            "2D flat vector illustration, cel-shaded, clean dark outlines, atmospheric lighting, no text, no watermark, no people"
 
         fun buildPollinationsUrl(prompt: String): String {
             val encoded = URLEncoder.encode(prompt.trim(), Charsets.UTF_8.name())
@@ -61,6 +63,18 @@ class AiHordeImageClient(
                 .filter { it.isNotBlank() }
                 .joinToString(", ")
             return base
+        }
+
+        fun buildFlatVectorIllustrationPrompt(
+            scenePrompt: String,
+            style: AnimationStyle = AnimationStyle.ATMOSPHERIC_2D_STORY
+        ): String {
+            val cleanPrompt = scenePrompt.trim().ifBlank { style.displayName }
+            return if (cleanPrompt.contains("2D flat vector illustration", ignoreCase = true)) {
+                cleanPrompt
+            } else {
+                "$cleanPrompt, $FLAT_VECTOR_ILLUSTRATION_SUFFIX"
+            }
         }
     }
 
@@ -80,6 +94,8 @@ class AiHordeImageClient(
         aiHordeApiKey: String,
         topicSeed: Int,
         preferAiHordeDirect: Boolean = false,
+        forceNetworkArt: Boolean = false,
+        useFlatVectorPrompt: Boolean = false,
         onSceneCompleted: suspend (completedCount: Int, totalCount: Int) -> Unit = { _, _ -> }
     ): List<BackdropResult> = coroutineScope {
         val semaphore = Semaphore(MAX_CONCURRENT_JOBS)
@@ -103,7 +119,9 @@ class AiHordeImageClient(
                         aiHordeApiKey = aiHordeApiKey,
                         seed = scene.sceneId * 1013 + topicSeed,
                         environmentTheme = scene.environmentTheme,
-                        preferAiHordeDirect = preferAiHordeDirect
+                        preferAiHordeDirect = preferAiHordeDirect,
+                        forceNetworkArt = forceNetworkArt,
+                        useFlatVectorPrompt = useFlatVectorPrompt
                     )
                     val count = completed.incrementAndGet()
                     onSceneCompleted(count, total)
@@ -119,10 +137,11 @@ class AiHordeImageClient(
         aiHordeApiKey: String,
         seed: Int,
         environmentTheme: EnvironmentTheme? = null,
-        preferAiHordeDirect: Boolean = false
+        preferAiHordeDirect: Boolean = false,
+        forceNetworkArt: Boolean = false,
+        useFlatVectorPrompt: Boolean = false
     ): BackdropResult = withContext(Dispatchers.IO) {
-        // Stickman Whiteboard & pure SVG/2D presets skip cloud image calls for crisp procedural 2D stages
-        if (!style.usesNetworkArt) {
+        if (!forceNetworkArt && !style.usesNetworkArt) {
             return@withContext BackdropResult(
                 bitmap = ProceduralBackdropGenerator.generate(
                     prompt = scenePrompt,
@@ -136,7 +155,11 @@ class AiHordeImageClient(
             )
         }
 
-        val fullPrompt = buildEmptyStagePrompt(scenePrompt, style)
+        val fullPrompt = if (useFlatVectorPrompt) {
+            buildFlatVectorIllustrationPrompt(scenePrompt, style)
+        } else {
+            buildEmptyStagePrompt(scenePrompt, style)
+        }
         val cleanHordeKey = aiHordeApiKey.replace("\r", "").replace("\n", "").trim().ifBlank { "0000000000" }
         val decoded = if (preferAiHordeDirect) {
             // AI Horde Mode ON: route scene art directly to AI Horde async workers
@@ -146,7 +169,7 @@ class AiHordeImageClient(
                 pollTimeoutMs = DIRECT_HORDE_POLL_TIMEOUT_MS
             )
         } else {
-            // Custom LLM Mode: Pollinations Flux primary (3 retries) -> AI Horde backup
+            // Pollinations Flux primary (3 retries) -> AI Horde backup
             tryFetchPollinationsImageWithRetry(fullPrompt)
                 ?: tryFetchAiHordeImage(
                     prompt = fullPrompt,
@@ -161,7 +184,7 @@ class AiHordeImageClient(
             return@withContext BackdropResult(bitmap = scaled, fromNetwork = true)
         }
 
-        // Seamless zero-crash multi-environment 2.5D procedural stage fallback when offline
+        // Seamless zero-crash atmospheric fallback when offline
         return@withContext BackdropResult(
             bitmap = ProceduralBackdropGenerator.generate(
                 prompt = scenePrompt,
