@@ -15,12 +15,22 @@ enum class ProceduralSfxCue {
     POP_CALLOUT,
     DING_SUCCESS,
     BUZZ_ERROR,
-    SUB_BASS_IMPACT;
+    SUB_BASS_IMPACT,
+    DOOR_KNOCK_3X,
+    HEARTBEAT_THUMP,
+    TENSION_RISER,
+    ELECTRIC_HUM;
 
     companion object {
         fun fromRaw(raw: String?): ProceduralSfxCue? {
             val clean = raw?.trim()?.uppercase() ?: return null
-            return entries.firstOrNull { it.name == clean }
+            return entries.firstOrNull { it.name == clean } ?: when (clean) {
+                "DOOR_KNOCK", "KNOCK", "KNOCK_3X" -> DOOR_KNOCK_3X
+                "HEARTBEAT", "THUMP" -> HEARTBEAT_THUMP
+                "RISER", "TENSION" -> TENSION_RISER
+                "HUM", "ELECTRIC", "BUZZ_ELECTRIC" -> ELECTRIC_HUM
+                else -> null
+            }
         }
     }
 }
@@ -151,9 +161,11 @@ object SfxTimelineMixer {
                 }
             }
 
-            // 6. Explicit scene SFX cues
+            // 6. Explicit scene SFX cues from JSON "sfx" field
+            val scheduledCuesInScene = mutableSetOf<ProceduralSfxCue>()
             scene.sfxCues.forEachIndexed { sIdx, rawCue ->
                 val cue = ProceduralSfxCue.fromRaw(rawCue) ?: return@forEachIndexed
+                scheduledCuesInScene += cue
                 val offsetSec = 0.06 + sIdx * 0.35
                 if (offsetSec * 1000.0 < durMs - 80.0) {
                     events += ScheduledSfxEvent(
@@ -163,6 +175,35 @@ object SfxTimelineMixer {
                     )
                 }
             }
+
+            // 7. Contextual atmospheric/technical SFX from Tagalog narration & callouts
+            val contextText = "${scene.tagalogNarration} ${scene.calloutBanner} ${scene.topicPillLabel}".lowercase()
+            val contextualCues = buildList {
+                if (contextText.contains("katok") || contextText.contains("kumakatok")) {
+                    add(ProceduralSfxCue.DOOR_KNOCK_3X)
+                }
+                if (contextText.contains("tibok") || contextText.contains("puso")) {
+                    add(ProceduralSfxCue.HEARTBEAT_THUMP)
+                }
+                if (contextText.contains("panganib") || contextText.contains("delikado") || contextText.contains("babala")) {
+                    add(ProceduralSfxCue.TENSION_RISER)
+                }
+                if (contextText.contains("solar") || contextText.contains("kuryente") || contextText.contains("inverter")) {
+                    add(ProceduralSfxCue.ELECTRIC_HUM)
+                }
+            }
+            contextualCues
+                .filter { it !in scheduledCuesInScene }
+                .forEachIndexed { cIdx, cue ->
+                    val offsetSec = if (durMs > 600.0) 0.14 + cIdx * 0.30 else 0.04
+                    if (offsetSec * 1000.0 < durMs - 60.0) {
+                        events += ScheduledSfxEvent(
+                            timeSec = startSec + offsetSec,
+                            cue = cue,
+                            seed = 1500 + idx * 23 + cIdx
+                        )
+                    }
+                }
         }
         return events
     }
@@ -177,6 +218,10 @@ object SfxTimelineMixer {
         ProceduralSfxCue.DING_SUCCESS -> synthesizeDingSuccess(sampleRate, seed)
         ProceduralSfxCue.BUZZ_ERROR -> synthesizeBuzzError(sampleRate)
         ProceduralSfxCue.SUB_BASS_IMPACT -> synthesizeSubBassImpact(sampleRate)
+        ProceduralSfxCue.DOOR_KNOCK_3X -> synthesizeDoorKnock3x(sampleRate)
+        ProceduralSfxCue.HEARTBEAT_THUMP -> synthesizeHeartbeatThump(sampleRate)
+        ProceduralSfxCue.TENSION_RISER -> synthesizeTensionRiser(sampleRate, seed)
+        ProceduralSfxCue.ELECTRIC_HUM -> synthesizeElectricHum(sampleRate)
     }
 
     fun mixSfxEventsIntoBuffer(
@@ -295,6 +340,106 @@ object SfxTimelineMixer {
             val attack = if (k < attackSamples) k.toFloat() / attackSamples else 1f
             val decay = exp(-t * 13.0).toFloat()
             out[k] = sin(phase).toFloat() * attack * decay * 0.32f
+        }
+        return out
+    }
+
+    private fun synthesizeDoorKnock3x(sampleRate: Int): FloatArray {
+        val len = (0.58 * sampleRate).toInt().coerceAtLeast(1)
+        val out = FloatArray(len)
+        val knockStartsSec = doubleArrayOf(0.0, 0.18, 0.36)
+        val knockPitchHz = doubleArrayOf(158.0, 148.0, 140.0)
+        for (k in 0 until len) {
+            val t = k.toDouble() / sampleRate.toDouble()
+            var sum = 0.0
+            for (n in knockStartsSec.indices) {
+                val localT = t - knockStartsSec[n]
+                if (localT >= 0.0 && localT < 0.14) {
+                    val attack = (localT / 0.0025).coerceIn(0.0, 1.0)
+                    val woodyDecay = exp(-localT * 30.0)
+                    val freq = knockPitchHz[n] * exp(-localT * 6.0) + 72.0
+                    val body = sin(2.0 * PI * freq * localT) * 0.72 +
+                        sin(2.0 * PI * (freq * 2.15) * localT) * 0.28
+                    val tapClick = sin(2.0 * PI * 680.0 * localT) * exp(-localT * 110.0) * 0.25
+                    sum += (body * woodyDecay + tapClick) * attack
+                }
+            }
+            out[k] = (sum * 0.30).toFloat().coerceIn(-1.0f, 1.0f)
+        }
+        return out
+    }
+
+    private fun synthesizeHeartbeatThump(sampleRate: Int): FloatArray {
+        val len = (0.54 * sampleRate).toInt().coerceAtLeast(1)
+        val out = FloatArray(len)
+        val beatStarts = doubleArrayOf(0.0, 0.19)
+        val beatGains = doubleArrayOf(1.0, 0.72)
+        for (k in 0 until len) {
+            val t = k.toDouble() / sampleRate.toDouble()
+            var sum = 0.0
+            for (b in beatStarts.indices) {
+                val localT = t - beatStarts[b]
+                if (localT >= 0.0 && localT < 0.17) {
+                    val attack = (localT / 0.008).coerceIn(0.0, 1.0)
+                    val decay = exp(-localT * 18.5)
+                    val freq = (66.0 + b * 8.0) * exp(-localT * 3.5) + 34.0
+                    val pulse = sin(2.0 * PI * freq * localT) * 0.85 +
+                        sin(2.0 * PI * (freq * 2.0) * localT) * 0.18
+                    sum += pulse * attack * decay * beatGains[b]
+                }
+            }
+            out[k] = (sum * 0.34).toFloat().coerceIn(-1.0f, 1.0f)
+        }
+        return out
+    }
+
+    private fun synthesizeTensionRiser(sampleRate: Int, seed: Int): FloatArray {
+        val len = (0.68 * sampleRate).toInt().coerceAtLeast(1)
+        val out = FloatArray(len)
+        val rng = Random(seed + 77)
+        var lp = 0f
+        var hpPrevIn = 0f
+        var hpPrevOut = 0f
+        var synthPhase = 0.0
+        for (k in 0 until len) {
+            val frac = k.toFloat() / len.toFloat()
+            val swell = frac * frac
+            val tailFade = if (frac > 0.90f) ((1.0f - frac) / 0.10f).coerceIn(0f, 1f) else 1f
+            val white = rng.nextFloat() * 2f - 1f
+            // High-pass followed by sweeping low-pass for clean cinematic noise riser
+            val hp = 0.94f * (hpPrevOut + white - hpPrevIn)
+            hpPrevIn = white
+            hpPrevOut = hp
+            val cutoff = 0.03f + 0.38f * frac * frac
+            lp += (hp - lp) * cutoff
+
+            val sweepFreq = 115.0 + 245.0 * frac * frac
+            synthPhase += (2.0 * PI * sweepFreq) / sampleRate.toDouble()
+            val shimmer = sin(synthPhase).toFloat() * 0.30f
+
+            out[k] = ((lp * 0.65f + shimmer) * swell * tailFade * 0.30f).coerceIn(-1.0f, 1.0f)
+        }
+        return out
+    }
+
+    private fun synthesizeElectricHum(sampleRate: Int): FloatArray {
+        val len = (0.50 * sampleRate).toInt().coerceAtLeast(1)
+        val out = FloatArray(len)
+        val fadeInSamples = (0.025 * sampleRate).toInt().coerceAtLeast(1)
+        val fadeOutSamples = (0.060 * sampleRate).toInt().coerceAtLeast(1)
+        for (k in 0 until len) {
+            val t = k.toDouble() / sampleRate.toDouble()
+            val envIn = if (k < fadeInSamples) k.toFloat() / fadeInSamples else 1f
+            val envOut = if (k > len - fadeOutSamples) {
+                ((len - k).coerceAtLeast(0).toFloat() / fadeOutSamples)
+            } else 1f
+            val hum = (
+                sin(2.0 * PI * 60.0 * t) * 0.52 +
+                    sin(2.0 * PI * 120.0 * t) * 0.28 +
+                    sin(2.0 * PI * 180.0 * t) * 0.14 +
+                    sin(2.0 * PI * 240.0 * t) * 0.06
+                ).toFloat()
+            out[k] = (hum * envIn * envOut * 0.22f).coerceIn(-1.0f, 1.0f)
         }
         return out
     }

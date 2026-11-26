@@ -58,6 +58,7 @@ object AudioPcmStitcher {
     const val MIN_BREATHING_PAUSE_MS = 350.0
     const val MAX_BREATHING_PAUSE_MS = 850.0
     const val MAX_OUTRO_HOLD_MS = 1200.0
+    const val SEAMLESS_LOOP_TAIL_MS = 350.0
 
     fun computeBreathingPauses(
         sceneCount: Int,
@@ -306,7 +307,8 @@ object AudioPcmStitcher {
         style: AnimationStyle = AnimationStyle.PAPER_DIORAMA,
         customBgmPcm44100Mono: ByteArray? = null,
         targetDurationMs: Double? = null,
-        alwaysTriggerSceneBoundarySfx: Boolean = false
+        alwaysTriggerSceneBoundarySfx: Boolean = false,
+        loopTailPaddingMs: Double = 0.0
     ): StitchedAudioTimeline {
         val unifiedStream = ByteArrayOutputStream()
         val starts = mutableListOf<Double>()
@@ -332,7 +334,7 @@ object AudioPcmStitcher {
             val trailingSilenceMs = if (i < decodedPcmPerScene.lastIndex) {
                 pausePlan.transitionPausesMs.getOrElse(i) { 0.0 }
             } else {
-                pausePlan.outroHoldMs
+                maxOf(pausePlan.outroHoldMs, loopTailPaddingMs.coerceAtLeast(0.0))
             }
             val silenceSamples = ((trailingSilenceMs / 1000.0) * TARGET_SAMPLE_RATE).roundToInt().coerceAtLeast(0)
             val actualTrailingSilenceMs = (silenceSamples.toDouble() / TARGET_SAMPLE_RATE.toDouble()) * 1000.0

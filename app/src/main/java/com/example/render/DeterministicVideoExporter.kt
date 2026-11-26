@@ -46,7 +46,7 @@ class DeterministicVideoExporter(
         const val VIDEO_WIDTH = 1080
         const val VIDEO_HEIGHT = 1920
         const val VIDEO_FPS = 30
-        const val VIDEO_BITRATE = 8_000_000
+        const val VIDEO_BITRATE = 12_000_000
         const val FRAME_DURATION_NS = 33_333_333L
         const val AUDIO_SAMPLE_RATE = 44100
         const val AUDIO_CHANNELS = 1
@@ -72,7 +72,8 @@ class DeterministicVideoExporter(
         externalClipFrameSource: ExternalClipFrameSource? = null,
         frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null,
         captureCoverAtMs: Double = 1200.0,
-        overlayCaptionsOnCustomFrames: Boolean = false
+        overlayCaptionsOnCustomFrames: Boolean = false,
+        videoBitrate: Int = VIDEO_BITRATE
     ): ExportResult = withContext(Dispatchers.Default) {
         val totalFrames = ceil((totalDurationMs / 1000.0) * VIDEO_FPS).toInt().coerceAtLeast(30)
         val tempMp4File = File(tempCacheDir, "render_${UUID.randomUUID()}.mp4")
@@ -100,7 +101,7 @@ class DeterministicVideoExporter(
                 VIDEO_HEIGHT
             ).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BITRATE)
+                setInteger(MediaFormat.KEY_BIT_RATE, videoBitrate)
                 setInteger(MediaFormat.KEY_FRAME_RATE, VIDEO_FPS)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             }

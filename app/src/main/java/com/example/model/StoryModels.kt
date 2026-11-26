@@ -561,7 +561,7 @@ data class StudioSettings(
     val elevenLabsKeys: List<ElevenLabsKeyEntry> = emptyList(),
     val selectedVoiceId: String = "N2IVS1w4EtoT3dr4eOWO",
     val ttsBaseUrl: String = "https://api.elevenlabs.io",
-    val ttsModelId: String = "eleven_multilingual_v2",
+    val ttsModelId: String = "eleven_v4",
     val llmBaseUrl: String = "",
     val llmApiKey: String = "",
     val selectedModelId: String = "",
@@ -611,7 +611,7 @@ data class StudioSettings(
         get() = ttsBaseUrl.ifBlank { "https://api.elevenlabs.io" }.replace("\r", "").replace("\n", "").trim()
 
     val effectiveTtsModelId: String
-        get() = ttsModelId.ifBlank { "eleven_multilingual_v2" }.replace("\r", "").replace("\n", "").trim()
+        get() = ttsModelId.ifBlank { "eleven_v4" }.replace("\r", "").replace("\n", "").trim()
 
     val effectiveVoiceId: String
         get() = selectedVoiceId.ifBlank { "N2IVS1w4EtoT3dr4eOWO" }.replace("\r", "").replace("\n", "").trim()
@@ -640,7 +640,11 @@ data class GenerationProgress(
     val outputDisplayName: String? = null,
     val errorMessage: String? = null,
     val isRunning: Boolean = false,
-    val generatedScenesPreview: List<TimelineScene> = emptyList()
+    val generatedScenesPreview: List<TimelineScene> = emptyList(),
+    val queuedBatchCount: Int = 0,
+    val currentBatchIndex: Int = 0,
+    val totalBatchCount: Int = 0,
+    val completedBatchCount: Int = 0
 )
 
 data class SavedVideoItem(

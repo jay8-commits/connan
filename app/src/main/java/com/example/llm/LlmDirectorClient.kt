@@ -5,6 +5,7 @@ import com.example.model.AnimationStyle
 import com.example.model.SceneScript
 import com.example.model.StudioSettings
 import com.example.net.SharedHttpClients
+import com.example.render.MotionHtmlDirector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -60,7 +61,8 @@ data class ScriptQualityReport(
 
 data class LlmScriptResult(
     val scenes: List<SceneScript>,
-    val providerUsed: String
+    val providerUsed: String,
+    val customHtmlDocument: String? = null
 )
 
 data class OpenAiChoiceResult(
@@ -121,6 +123,11 @@ class LlmDirectorClient(
 
         val activeCreativePrompt = settings.activeTemplate?.content
             ?: BuiltInPrompts.VIRAL_PINOY_EXPLAINER.content
+        val godSystemPrompt = MotionHtmlDirector.buildMasterContentGodPromptV2(
+            durationSeconds = durationSeconds,
+            style = style,
+            customCreativeNotes = activeCreativePrompt
+        )
         val systemPrompt = BuiltInPrompts.composeSystemPrompt(
             activeCreativePrompt = activeCreativePrompt,
             durationSeconds = durationSeconds,
@@ -144,6 +151,31 @@ class LlmDirectorClient(
 
         var lastError: Throwable? = null
         for (url in candidateUrls) {
+            // Primary pass: Master Content God Prompt v2 (HTML5 + inline SVG + <script id="storyboard-json">)
+            val godAttempt = tryGodPromptHtmlPipeline(
+                providerName = "$presetLabel ($resolvedModel)",
+                url = url,
+                model = resolvedModel,
+                apiKey = primaryApiKey,
+                topic = topic,
+                durationSeconds = durationSeconds,
+                style = style,
+                godSystemPrompt = godSystemPrompt,
+                extraHeaders = extraHeaders,
+                onStatus = onStatus
+            )
+            if (godAttempt.isSuccess) return@withContext godAttempt.getOrThrow()
+
+            val godErr = godAttempt.exceptionOrNull()!!
+            if (godErr is LlmHttpException && (godErr.statusCode == 401 || godErr.statusCode == 403)) {
+                throw godErr
+            }
+            if (godErr is LlmHttpException && (godErr.statusCode == 404 || godErr.statusCode == 405)) {
+                lastError = godErr
+                continue
+            }
+
+            // Fallback pass: Batched JSON director pipeline
             val result = tryDirectBatchedJsonPipeline(
                 providerName = "$presetLabel ($resolvedModel)",
                 url = url,
@@ -169,6 +201,89 @@ class LlmDirectorClient(
         }
 
         throw (lastError ?: IOException("LLM request failed for URL: $primaryBaseUrl | Model: $resolvedModel"))
+    }
+
+    private fun tryGodPromptHtmlPipeline(
+        providerName: String,
+        url: String,
+        model: String,
+        apiKey: String,
+        topic: String,
+        durationSeconds: Int,
+        style: AnimationStyle,
+        godSystemPrompt: String,
+        extraHeaders: Map<String, String>,
+        onStatus: (String) -> Unit
+    ): Result<LlmScriptResult> {
+        val cleanModel = UniversalModelDetector.cleanCredential(model)
+        val userPrompt = """
+Create a complete, self-contained 1080x1920 vertical HTML5 + inline SVG animated Tagalog story (~${durationSeconds}s) about:
+"$topic"
+
+Visual style: ${style.displayName} (${style.subtitle}).
+Include <script id="storyboard-json" type="application/json">, progressive 4-slot gauges, leader-line pointer callouts, window.setSceneTimings(durationsArray), and window.seekToTime(seconds).
+Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
+        """.trimIndent()
+
+        val htmlCompatFlags = listOf(
+            ChatPayloadCompatFlags(includeThinking = false, includeEnableThinking = false, includeResponseFormat = false, includeStream = true),
+            ChatPayloadCompatFlags(includeThinking = false, includeEnableThinking = false, includeResponseFormat = false, includeStream = false)
+        )
+
+        var lastErr: Throwable? = null
+        for ((idx, flags) in htmlCompatFlags.withIndex()) {
+            try {
+                onStatus(
+                    if (idx == 0) "Directing HTML5/SVG God Prompt v2 via $providerName..."
+                    else "Retrying God Prompt v2 in non-streaming mode..."
+                )
+                val (choice, _) = performSingleOpenAiChatCompletion(
+                    url = url.trim(),
+                    model = cleanModel,
+                    apiKey = apiKey,
+                    systemPrompt = godSystemPrompt,
+                    userPrompt = userPrompt,
+                    extraHeaders = extraHeaders,
+                    temperature = DEFAULT_TEMPERATURE,
+                    compatFlags = flags
+                )
+                val raw = choice.content.trim()
+                if (raw.isBlank()) {
+                    lastErr = MalformedSceneJsonException("Empty God Prompt v2 response")
+                    continue
+                }
+                if (DirectStoryboardParser.looksLikeHtmlOrSvgInput(raw)) {
+                    val parsed = DirectStoryboardParser.parse(raw, style)
+                    if (parsed.scenes.isNotEmpty()) {
+                        return Result.success(
+                            LlmScriptResult(
+                                scenes = parsed.scenes,
+                                providerUsed = "$providerName • God Prompt v2",
+                                customHtmlDocument = parsed.customHtmlDocument
+                            )
+                        )
+                    }
+                }
+                val jsonParsed = runCatching { JsonSanitizer.parseAndValidateScenes(raw) }.getOrNull().orEmpty()
+                if (jsonParsed.isNotEmpty()) {
+                    return Result.success(
+                        LlmScriptResult(
+                            scenes = jsonParsed,
+                            providerUsed = "$providerName • God Prompt v2"
+                        )
+                    )
+                }
+                lastErr = MalformedSceneJsonException("LLM response was neither valid HTML5/SVG nor JSON scenes")
+            } catch (e: LlmHttpException) {
+                if (e.statusCode == 401 || e.statusCode == 403 || e.statusCode == 404 || e.statusCode == 405) {
+                    return Result.failure(e)
+                }
+                lastErr = e
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        return Result.failure(lastErr ?: IOException("God Prompt v2 HTML generation failed"))
     }
 
     private suspend fun tryDirectBatchedJsonPipeline(

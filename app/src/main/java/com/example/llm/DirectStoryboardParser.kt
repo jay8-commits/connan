@@ -388,7 +388,7 @@ $normalizedSvg
             .ifBlank { "Narito ang detalyadong animated visual explainer para mas madaling maunawaan ang kuwento." }
 
         val cleanChunks = splitIntoBalancedScenes(extractedNarration)
-            .ifEmpty { listOf(TagalogNarrationValidator.cleanForTts(extractedNarration).ifBlank { extractedNarration }) }
+            .ifEmpty { listOf(TagalogNarrationValidator.cleanPreservingAudioTags(extractedNarration).ifBlank { extractedNarration }) }
 
         return cleanChunks.mapIndexed { idx, line ->
             SceneScript(
@@ -488,7 +488,7 @@ $normalizedSvg
             for (i in 0 until array.length()) {
                 val item = array.opt(i) ?: continue
                 if (item is String) {
-                    val clean = TagalogNarrationValidator.cleanForTts(item).ifBlank { item.trim() }
+                    val clean = TagalogNarrationValidator.cleanPreservingAudioTags(item).ifBlank { item.trim() }
                     if (clean.isNotBlank()) {
                         parsedScenes.add(
                             SceneScript(
@@ -514,7 +514,7 @@ $normalizedSvg
                     obj.optString("script", ""),
                     obj.optString("text", "")
                 ).firstOrNull { it.isNotBlank() }.orEmpty()
-                val cleanNarration = TagalogNarrationValidator.cleanForTts(rawNarration)
+                val cleanNarration = TagalogNarrationValidator.cleanPreservingAudioTags(rawNarration)
                     .ifBlank { rawNarration.trim() }
                 if (cleanNarration.isBlank()) continue
 
@@ -594,13 +594,13 @@ $normalizedSvg
         val metaIdx = lower.indexOf(metaMarker)
         if (metaIdx >= 0) {
             val contentAttr = extractAttributeValue(markup, metaIdx, "content")
-            if (!contentAttr.isNullOrBlank()) return TagalogNarrationValidator.cleanForTts(contentAttr)
+            if (!contentAttr.isNullOrBlank()) return TagalogNarrationValidator.cleanPreservingAudioTags(contentAttr)
         }
 
         val dataNarrationIdx = lower.indexOf("data-narration")
         if (dataNarrationIdx >= 0) {
             val attrVal = extractAttributeValue(markup, dataNarrationIdx, "data-narration")
-            if (!attrVal.isNullOrBlank()) return TagalogNarrationValidator.cleanForTts(attrVal)
+            if (!attrVal.isNullOrBlank()) return TagalogNarrationValidator.cleanPreservingAudioTags(attrVal)
         }
 
         val commentNeedle = "<!-- narration:"
@@ -609,7 +609,7 @@ $normalizedSvg
             val commentEnd = markup.indexOf("-->", commentIdx + commentNeedle.length)
             if (commentEnd > commentIdx) {
                 val inside = markup.substring(commentIdx + commentNeedle.length, commentEnd).trim()
-                if (inside.isNotBlank()) return TagalogNarrationValidator.cleanForTts(inside)
+                if (inside.isNotBlank()) return TagalogNarrationValidator.cleanPreservingAudioTags(inside)
             }
         }
         return ""
@@ -647,7 +647,7 @@ $normalizedSvg
         val lockedHairHex = "#1E293B"
 
         return chunks.mapIndexed { idx, rawChunk ->
-            val cleanNarration = TagalogNarrationValidator.cleanForTts(rawChunk)
+            val cleanNarration = TagalogNarrationValidator.cleanPreservingAudioTags(rawChunk)
                 .ifBlank { rawChunk.trim() }
 
             val cameraMotion = CAMERA_MOTION_ROTATION[idx % CAMERA_MOTION_ROTATION.size]
@@ -707,7 +707,7 @@ $normalizedSvg
             .replace("\r\n", "\n")
             .replace("\r", "\n")
             .split('\n')
-            .map { TagalogNarrationValidator.cleanForTts(it) }
+            .map { TagalogNarrationValidator.cleanPreservingAudioTags(it) }
             .filter { it.isNotBlank() }
 
         if (normalizedLines.isEmpty()) return emptyList()
@@ -859,9 +859,8 @@ $normalizedSvg
             } else {
                 null
             }
-            val narration = embeddedNarration?.takeIf { it.isNotBlank() }
-                ?.let { TagalogNarrationValidator.cleanForTts(it).ifBlank { it } }
-                ?: extractNarrationFromMarkup(cleanedMarkup)
+            val narration = (embeddedNarration?.takeIf { it.isNotBlank() } ?: extractNarrationFromMarkup(cleanedMarkup))
+                .let { TagalogNarrationValidator.cleanForTts(it).ifBlank { it } }
             if (narration.isNotBlank()) {
                 return narration.split(Regex("\\s+")).filter { it.isNotBlank() }.take(6).joinToString(" ")
             }

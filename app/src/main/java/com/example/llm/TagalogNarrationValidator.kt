@@ -48,6 +48,20 @@ object TagalogNarrationValidator {
         return s.replace(Regex("\\s+"), " ").trim()
     }
 
+    /**
+     * Cleans speaker prefixes and parenthetical notes while keeping Eleven v4 inline
+     * expressive audio tags such as [whispers], [tense], or [excited] intact.
+     */
+    fun cleanPreservingAudioTags(raw: String): String {
+        var s = raw.trim()
+        s = SPEAKER_PREFIX_REGEX.replace(s, "")
+        s = stripStageBrackets(s, '(', ')', maxSpan = 30)
+        return s.replace(Regex("\\s+"), " ").trim()
+    }
+
+    fun stripAudioTags(raw: String): String =
+        stripStageBrackets(raw, '[', ']', maxSpan = 80).replace(Regex("\\s+"), " ").trim()
+
     private fun stripStageBrackets(input: String, open: Char, close: Char, maxSpan: Int): String {
         if (!input.contains(open)) return input
         val sb = StringBuilder(input.length)

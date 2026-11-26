@@ -38,6 +38,7 @@ import com.example.model.WordTiming
 import com.example.model.WorldFx
 import com.example.render.CharacterSpriteProcessor
 import com.example.service.PipelineProgressBus
+import com.example.service.RenderBatchItem
 import com.example.service.VideoGenerationService
 import com.example.tts.DetectedVoice
 import com.example.tts.ElevenLabsClient
@@ -57,6 +58,13 @@ import java.io.FileOutputStream
 data class DetectionBannerState(
     val isSuccess: Boolean,
     val message: String
+)
+
+data class QueuedRenderUiItem(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val request: RenderBatchItem
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -100,6 +108,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _savedVideos = MutableStateFlow<List<SavedVideoItem>>(emptyList())
     val savedVideos: StateFlow<List<SavedVideoItem>> = _savedVideos.asStateFlow()
+
+    private val _stagedRenderQueue = MutableStateFlow<List<QueuedRenderUiItem>>(emptyList())
+    val stagedRenderQueue: StateFlow<List<QueuedRenderUiItem>> = _stagedRenderQueue.asStateFlow()
 
     private val _isLoadingVideos = MutableStateFlow(false)
     val isLoadingVideos: StateFlow<Boolean> = _isLoadingVideos.asStateFlow()
@@ -190,8 +201,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            var lastCompletedBatchCount = 0
             PipelineProgressBus.progress.collect { state ->
-                if (state.step == PipelineStep.COMPLETED) {
+                if (state.step == PipelineStep.COMPLETED || state.completedBatchCount > lastCompletedBatchCount) {
+                    lastCompletedBatchCount = state.completedBatchCount
                     refreshVideos()
                 }
             }
@@ -616,6 +629,160 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return name
     }
 
+    fun removeQueuedRenderItem(id: String) {
+        _stagedRenderQueue.value = _stagedRenderQueue.value.filterNot { it.id == id }
+    }
+
+    fun clearRenderQueue() {
+        _stagedRenderQueue.value = emptyList()
+        showMessage("Cleared render queue")
+    }
+
+    fun addToRenderQueue(voiceIdDraft: String? = null) {
+        val mode = _productionMode.value
+        val clips = _importedClips.value
+        if (mode == ProductionMode.CLIP_AUTO_EDITOR && clips.isEmpty()) {
+            showMessage("Select at least 1 .mp4 or image clip for Clip + Auto-HUD mode")
+            return
+        }
+
+        viewModelScope.launch {
+            val prepared = prepareValidatedRenderRequest(voiceIdDraft) ?: return@launch
+            val (item, summaryLabel) = prepared
+
+            if (progress.value.isRunning) {
+                val activeAndQueued = 1 + progress.value.queuedBatchCount
+                if (activeAndQueued >= VideoGenerationService.MAX_BATCH_QUEUE_SIZE) {
+                    showMessage("Batch queue is full (max ${VideoGenerationService.MAX_BATCH_QUEUE_SIZE} videos)")
+                    return@launch
+                }
+                val queueFile = writeBatchQueueFile(listOf(item))
+                val intent = Intent(appContext, VideoGenerationService::class.java).apply {
+                    action = VideoGenerationService.ACTION_ENQUEUE
+                    putExtra(VideoGenerationService.EXTRA_BATCH_QUEUE_FILE, queueFile.absolutePath)
+                }
+                ContextCompat.startForegroundService(appContext, intent)
+                if (item.scriptSourceModeOverride == ScriptSourceMode.DIRECT_SCRIPT) {
+                    _directScriptText.value = ""
+                    settingsStore.setDirectScriptText("")
+                }
+                showMessage("Added \"${item.topic}\" to active batch queue")
+            } else {
+                val current = _stagedRenderQueue.value
+                if (current.size >= VideoGenerationService.MAX_BATCH_QUEUE_SIZE) {
+                    showMessage("Queue full (max ${VideoGenerationService.MAX_BATCH_QUEUE_SIZE} videos)")
+                    return@launch
+                }
+                val uiItem = QueuedRenderUiItem(
+                    id = "${System.currentTimeMillis()}_${current.size}",
+                    title = item.topic,
+                    summary = summaryLabel,
+                    request = item
+                )
+                val updated = current + uiItem
+                _stagedRenderQueue.value = updated
+                if (item.scriptSourceModeOverride == ScriptSourceMode.DIRECT_SCRIPT) {
+                    _directScriptText.value = ""
+                    settingsStore.setDirectScriptText("")
+                }
+                showMessage("Queued (${updated.size}/${VideoGenerationService.MAX_BATCH_QUEUE_SIZE}): ${item.topic}")
+            }
+        }
+    }
+
+    private suspend fun prepareValidatedRenderRequest(
+        voiceIdDraft: String?
+    ): Pair<RenderBatchItem, String>? {
+        val mode = _productionMode.value
+        val clips = _importedClips.value
+        val cleanVoiceDraft = voiceIdDraft?.let { UniversalModelDetector.cleanCredential(it) }.orEmpty()
+        if (cleanVoiceDraft.isNotEmpty()) {
+            settingsStore.setSelectedVoiceId(cleanVoiceDraft)
+        }
+        val snapshot = settingsStore.getSnapshot()
+        val scriptMode = snapshot.effectiveScriptSourceMode
+        val scriptDraft = _directScriptText.value.trim().ifBlank { snapshot.directScriptText.trim() }
+        val currentTopic = _topic.value.trim()
+
+        if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
+            if (scriptDraft.isEmpty()) {
+                showMessage("Paste a JSON, HTML/SVG storyboard, or plain Tagalog script first")
+                return null
+            }
+        } else if (currentTopic.isEmpty()) {
+            showMessage("Enter a Tagalog story topic first")
+            return null
+        }
+
+        val effectiveLlmBase = snapshot.effectiveLlmBaseUrl
+        val effectiveLlmKey = snapshot.effectiveLlmApiKey
+        val resolvedModel = snapshot.effectiveSelectedModelId.ifBlank {
+            UniversalModelDetector.matchPresetForUrl(effectiveLlmBase).defaultModelHint
+        }
+        val hasElevenLabsKey = snapshot.elevenLabsKeys.any {
+            UniversalModelDetector.cleanCredential(it.key).isNotEmpty()
+        }
+        val effectiveVoice = cleanVoiceDraft.ifBlank { snapshot.effectiveVoiceId }
+
+        val missing = buildList {
+            if (scriptMode == ScriptSourceMode.CUSTOM_LLM) {
+                if (effectiveLlmBase.isBlank()) add("LLM Base URL")
+                if (effectiveLlmKey.isBlank()) add("LLM API Key")
+                if (resolvedModel.isBlank()) add("LLM Model ID")
+            }
+            if (!hasElevenLabsKey) add("ElevenLabs API Key")
+            if (effectiveVoice.isBlank()) add("ElevenLabs Voice ID")
+        }
+
+        if (missing.isNotEmpty()) {
+            val errMsg = "Setup required before rendering: missing ${missing.joinToString(", ")}. Open API & Settings to configure your keys."
+            PipelineProgressBus.update { cur ->
+                cur.copy(
+                    step = PipelineStep.ERROR,
+                    statusMessage = errMsg,
+                    errorMessage = errMsg,
+                    isRunning = false
+                )
+            }
+            showMessage("Configure ${missing.first()} in API & Settings first")
+            return null
+        }
+
+        val launchTopic = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
+            DirectStoryboardParser.deriveTopicTitle(scriptDraft)
+        } else {
+            currentTopic
+        }
+        val effectiveStyle = if (mode == ProductionMode.CROSS_SECTION_EXPLAINER) {
+            AnimationStyle.CROSS_SECTION
+        } else {
+            _selectedStyle.value
+        }
+        val request = RenderBatchItem(
+            topic = launchTopic.ifBlank { "Direct Tagalog Story" },
+            style = effectiveStyle,
+            durationSec = _selectedDurationSec.value,
+            voiceIdOverride = effectiveVoice,
+            productionMode = mode,
+            importedClipUris = clips.map { Uri.parse(it.uriString) },
+            scriptSourceModeOverride = scriptMode,
+            directScriptOverride = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) scriptDraft else ""
+        )
+        val summary = when (scriptMode) {
+            ScriptSourceMode.DIRECT_SCRIPT -> DirectStoryboardParser.estimatePreviewSummary(scriptDraft)
+            ScriptSourceMode.CUSTOM_LLM -> "Custom LLM • ${_selectedDurationSec.value}s"
+            ScriptSourceMode.AI_HORDE -> "AI Horde • ${_selectedDurationSec.value}s"
+        }
+        return request to summary
+    }
+
+    private suspend fun writeBatchQueueFile(items: List<RenderBatchItem>): File =
+        withContext(Dispatchers.IO) {
+            val file = File(appContext.cacheDir, "toonforge_batch_${System.currentTimeMillis()}.json")
+            file.writeText(VideoGenerationService.serializeBatchItemsToJson(items), Charsets.UTF_8)
+            file
+        }
+
     fun startGeneration(voiceIdDraft: String? = null) {
         val mode = _productionMode.value
         val clips = _importedClips.value
@@ -626,80 +793,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (progress.value.isRunning) return
 
         viewModelScope.launch {
-            val cleanVoiceDraft = voiceIdDraft?.let { UniversalModelDetector.cleanCredential(it) }.orEmpty()
-            if (cleanVoiceDraft.isNotEmpty()) {
-                settingsStore.setSelectedVoiceId(cleanVoiceDraft)
-            }
-            val snapshot = settingsStore.getSnapshot()
-            val scriptMode = snapshot.effectiveScriptSourceMode
-            val scriptDraft = _directScriptText.value.trim().ifBlank { snapshot.directScriptText.trim() }
-            val currentTopic = _topic.value.trim()
-
-            if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
-                if (scriptDraft.isEmpty()) {
-                    showMessage("Paste a JSON, HTML/SVG storyboard, or plain Tagalog script first")
-                    return@launch
+            val staged = _stagedRenderQueue.value
+            if (staged.isNotEmpty()) {
+                val batchRequests = staged.map { it.request }.toMutableList()
+                val snapshot = settingsStore.getSnapshot()
+                if (snapshot.effectiveScriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT &&
+                    _directScriptText.value.isNotBlank() &&
+                    batchRequests.size < VideoGenerationService.MAX_BATCH_QUEUE_SIZE
+                ) {
+                    prepareValidatedRenderRequest(voiceIdDraft)?.let { (extraItem, _) ->
+                        batchRequests.add(extraItem)
+                    }
                 }
-            } else if (currentTopic.isEmpty()) {
-                showMessage("Enter a Tagalog story topic first")
+                _stagedRenderQueue.value = emptyList()
+                val queueFile = writeBatchQueueFile(batchRequests)
+                val intent = Intent(appContext, VideoGenerationService::class.java).apply {
+                    action = VideoGenerationService.ACTION_START
+                    putExtra(VideoGenerationService.EXTRA_BATCH_QUEUE_FILE, queueFile.absolutePath)
+                }
+                ContextCompat.startForegroundService(appContext, intent)
                 return@launch
             }
 
-            val effectiveLlmBase = snapshot.effectiveLlmBaseUrl
-            val effectiveLlmKey = snapshot.effectiveLlmApiKey
-            val resolvedModel = snapshot.effectiveSelectedModelId.ifBlank {
-                UniversalModelDetector.matchPresetForUrl(effectiveLlmBase).defaultModelHint
-            }
-            val hasElevenLabsKey = snapshot.elevenLabsKeys.any {
-                UniversalModelDetector.cleanCredential(it.key).isNotEmpty()
-            }
-            val effectiveVoice = cleanVoiceDraft.ifBlank { snapshot.effectiveVoiceId }
-
-            val missing = buildList {
-                if (scriptMode == ScriptSourceMode.CUSTOM_LLM) {
-                    if (effectiveLlmBase.isBlank()) add("LLM Base URL")
-                    if (effectiveLlmKey.isBlank()) add("LLM API Key")
-                    if (resolvedModel.isBlank()) add("LLM Model ID")
-                }
-                if (!hasElevenLabsKey) add("ElevenLabs API Key")
-                if (effectiveVoice.isBlank()) add("ElevenLabs Voice ID")
-            }
-
-            if (missing.isNotEmpty()) {
-                val errMsg = "Setup required before rendering: missing ${missing.joinToString(", ")}. Open API & Settings to configure your keys."
-                PipelineProgressBus.update { cur ->
-                    cur.copy(
-                        step = PipelineStep.ERROR,
-                        statusMessage = errMsg,
-                        errorMessage = errMsg,
-                        isRunning = false
-                    )
-                }
-                showMessage("Configure ${missing.first()} in API & Settings first")
-                return@launch
-            }
-
-            val launchTopic = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
-                currentTopic.ifBlank { DirectStoryboardParser.deriveTopicTitle(scriptDraft) }
-            } else {
-                currentTopic
-            }
-
+            val prepared = prepareValidatedRenderRequest(voiceIdDraft) ?: return@launch
+            val (item, _) = prepared
+            val queueFile = writeBatchQueueFile(listOf(item))
             val intent = Intent(appContext, VideoGenerationService::class.java).apply {
                 action = VideoGenerationService.ACTION_START
-                putExtra(VideoGenerationService.EXTRA_TOPIC, launchTopic)
-                putExtra(VideoGenerationService.EXTRA_STYLE, _selectedStyle.value.name)
-                putExtra(VideoGenerationService.EXTRA_DURATION_SEC, _selectedDurationSec.value)
-                putExtra(VideoGenerationService.EXTRA_VOICE_ID, effectiveVoice)
-                putExtra(VideoGenerationService.EXTRA_PRODUCTION_MODE, mode.name)
-                putExtra(VideoGenerationService.EXTRA_SCRIPT_SOURCE_MODE, scriptMode.name)
-                if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
-                    putExtra(VideoGenerationService.EXTRA_DIRECT_SCRIPT, scriptDraft)
-                }
-                putStringArrayListExtra(
-                    VideoGenerationService.EXTRA_IMPORTED_CLIP_URIS,
-                    ArrayList(clips.map { it.uriString })
-                )
+                putExtra(VideoGenerationService.EXTRA_BATCH_QUEUE_FILE, queueFile.absolutePath)
             }
             ContextCompat.startForegroundService(appContext, intent)
         }

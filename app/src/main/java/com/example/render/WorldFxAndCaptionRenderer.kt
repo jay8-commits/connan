@@ -106,10 +106,11 @@ object WorldFxAndCaptionRenderer {
         currentMs: Double
     ) {
         val u = w / 1080f
-        val words = if (wordTimings.isNotEmpty()) {
-            wordTimings.map { it.copy(word = it.word.uppercase()) }
+        val sanitizedTimings = KaraokeCaptionRenderer.sanitizeCaptionWordTimings(wordTimings)
+        val words = if (sanitizedTimings.isNotEmpty()) {
+            sanitizedTimings.map { it.copy(word = it.word.uppercase()) }
         } else {
-            val raw = fallbackNarration.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val raw = KaraokeCaptionRenderer.extractCleanCaptionTokens(fallbackNarration)
             raw.mapIndexed { idx, s -> WordTiming(s.uppercase(), idx * 350.0, (idx + 1) * 350.0) }
         }
         if (words.isEmpty()) return

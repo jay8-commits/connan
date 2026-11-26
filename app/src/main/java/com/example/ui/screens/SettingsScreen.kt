@@ -95,6 +95,7 @@ import com.example.llm.LlmProviderPreset
 import com.example.llm.UniversalModelDetector
 import com.example.model.ScriptSourceMode
 import com.example.tts.DetectedVoice
+import com.example.tts.ElevenLabsClient
 import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
 import com.example.ui.theme.ForgeCrimson
@@ -110,6 +111,14 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val EmeraldSuccess = Color(0xFF10B981)
+
+@Composable
+fun ApiSettingsScreen(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    SettingsScreen(viewModel = viewModel, modifier = modifier)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,6 +151,7 @@ fun SettingsScreen(
     var showNewElevenKey by remember { mutableStateOf(false) }
     var ttsBaseUrl by remember { mutableStateOf(settings.effectiveTtsBaseUrl) }
     var ttsModelId by remember { mutableStateOf(settings.effectiveTtsModelId) }
+    var ttsModelDropdownExpanded by remember { mutableStateOf(false) }
     var voiceIdInput by remember { mutableStateOf(settings.effectiveVoiceId) }
     var voiceDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -1009,6 +1019,101 @@ fun SettingsScreen(
                         }
                     }
 
+                    // ElevenLabs Model Selector (eleven_v4 Default / eleven_v4_turbo / eleven_multilingual_v2)
+                    val activeModelPreset = remember(ttsModelId) {
+                        ElevenLabsClient.SUPPORTED_TTS_MODEL_PRESETS.firstOrNull {
+                            it.id.equals(ttsModelId.trim(), ignoreCase = true)
+                        }
+                    }
+                    ExposedDropdownMenuBox(
+                        expanded = ttsModelDropdownExpanded,
+                        onExpandedChange = { ttsModelDropdownExpanded = !ttsModelDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = activeModelPreset?.let { "${it.id} (${it.subtitle})" } ?: ttsModelId,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("ElevenLabs Voice Model") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = ttsModelDropdownExpanded)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .testTag("tts_model_picker_dropdown"),
+                            colors = studioTextFieldColors()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = ttsModelDropdownExpanded,
+                            onDismissRequest = { ttsModelDropdownExpanded = false }
+                        ) {
+                            ElevenLabsClient.SUPPORTED_TTS_MODEL_PRESETS.forEach { preset ->
+                                val isSelected = ttsModelId.equals(preset.id, ignoreCase = true)
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = preset.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) ForgeAmber else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = preset.subtitle,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        ttsModelId = preset.id
+                                        viewModel.setTtsModelId(preset.id)
+                                        ttsModelDropdownExpanded = false
+                                    },
+                                    modifier = Modifier.testTag("tts_model_option_${preset.id}")
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ElevenLabsClient.SUPPORTED_TTS_MODEL_PRESETS.forEach { preset ->
+                            val isSelected = ttsModelId.equals(preset.id, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    ttsModelId = preset.id
+                                    viewModel.setTtsModelId(preset.id)
+                                },
+                                label = {
+                                    Text(
+                                        text = when (preset.id) {
+                                            ElevenLabsClient.DEFAULT_TTS_MODEL_ID -> "eleven_v4 (Default)"
+                                            ElevenLabsClient.TURBO_V4_TTS_MODEL_ID -> "eleven_v4_turbo"
+                                            else -> "eleven_multilingual_v2"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = ForgeAmber.copy(alpha = 0.20f),
+                                    selectedLabelColor = ForgeAmber
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("tts_model_chip_${preset.id}")
+                            )
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1036,7 +1141,7 @@ fun SettingsScreen(
                                 viewModel.setTtsModelId(clean)
                             },
                             label = { Text("TTS Model ID") },
-                            placeholder = { Text("eleven_multilingual_v2") },
+                            placeholder = { Text("eleven_v4") },
                             singleLine = true,
                             modifier = Modifier
                                 .weight(1f)

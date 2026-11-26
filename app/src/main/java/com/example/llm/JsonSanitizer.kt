@@ -464,7 +464,7 @@ object JsonSanitizer {
         }
 
         val sceneId = obj.optInt("scene_id", index + 1)
-        val narration = TagalogNarrationValidator.cleanForTts(obj.optString("tagalog_narration", ""))
+        val narration = TagalogNarrationValidator.cleanPreservingAudioTags(obj.optString("tagalog_narration", ""))
         val rawBgPrompt = obj.optString("background_prompt", "").trim()
         val rawVisualDesc = obj.optString("visual_description", "").trim()
         val bgPrompt = rawBgPrompt.ifBlank { rawVisualDesc }

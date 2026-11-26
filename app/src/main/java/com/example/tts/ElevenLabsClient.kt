@@ -6,6 +6,7 @@ import com.example.model.ElevenLabsKeyEntry
 import com.example.model.PronunciationEntry
 import com.example.model.WordTiming
 import com.example.net.SharedHttpClients
+import com.example.render.KaraokeCaptionRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -39,6 +40,12 @@ data class VoicesAndCreditsResult(
     val quotaEntry: ElevenLabsKeyEntry?
 )
 
+data class TtsModelPreset(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
 class ElevenLabsHttpException(
     val statusCode: Int,
     val endpointUrl: String,
@@ -52,8 +59,9 @@ class ElevenLabsHttpException(
 typealias ElevenLabsTtsClient = ElevenLabsClient
 
 class ElevenLabsClient(
-    private val context: Context,
-    private val httpClient: OkHttpClient = SharedHttpClients.elevenLabsClient
+    private val context: Context? = null,
+    private val httpClient: OkHttpClient = SharedHttpClients.elevenLabsClient,
+    private val audioDecoder: (ByteArray, Boolean, File) -> ByteArray = AudioPcmStitcher::decodeAudioBytesToPcm44100Mono
 ) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -186,22 +194,33 @@ class ElevenLabsClient(
             throw IOException("Missing ElevenLabs Voice ID. Select or enter a Voice ID in Studio or API & Settings.")
         }
 
-        val cleanTagalog = com.example.llm.TagalogNarrationValidator.cleanForTts(rawTagalogNarration)
-        com.example.llm.TagalogNarrationValidator.validateOrThrow(cleanTagalog)
-        val normalizedText = TagalogPhoneticNormalizer.normalize(cleanTagalog, customDictionary)
-        val normPrev = previousText?.takeIf { it.isNotBlank() }?.let {
+        val useV4Tags = isElevenV4Model(initialModelId)
+        val cleanTagalogForSpeech = if (useV4Tags) {
+            com.example.llm.TagalogNarrationValidator.cleanPreservingAudioTags(rawTagalogNarration)
+        } else {
+            com.example.llm.TagalogNarrationValidator.cleanForTts(rawTagalogNarration)
+        }
+        com.example.llm.TagalogNarrationValidator.validateOrThrow(cleanTagalogForSpeech)
+        val normalizedText = TagalogPhoneticNormalizer.normalize(cleanTagalogForSpeech, customDictionary)
+        val cleanLegacyTagalog = com.example.llm.TagalogNarrationValidator.cleanForTts(rawTagalogNarration)
+        val normalizedLegacyText = if (useV4Tags) {
+            TagalogPhoneticNormalizer.normalize(cleanLegacyTagalog, customDictionary)
+        } else {
+            normalizedText
+        }
+        val normPrev = previousText?.takeIf { it.isNotBlank() && !useV4Tags }?.let {
             TagalogPhoneticNormalizer.normalize(
                 com.example.llm.TagalogNarrationValidator.cleanForTts(it),
                 customDictionary
             )
         }
-        val normNext = nextText?.takeIf { it.isNotBlank() }?.let {
+        val normNext = nextText?.takeIf { it.isNotBlank() && !useV4Tags }?.let {
             TagalogPhoneticNormalizer.normalize(
                 com.example.llm.TagalogNarrationValidator.cleanForTts(it),
                 customDictionary
             )
         }
-        val displayWords = cleanTagalog.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val displayWords = KaraokeCaptionRenderer.extractCleanCaptionTokens(cleanLegacyTagalog)
 
         val keyErrors = mutableListOf<String>()
         for (entry in validKeys) {
@@ -225,6 +244,7 @@ class ElevenLabsClient(
                     voiceId = cleanVoiceId,
                     initialModelId = initialModelId,
                     normalizedText = normalizedText,
+                    normalizedLegacyText = normalizedLegacyText,
                     normPrev = normPrev,
                     normNext = normNext,
                     narrationSpeed = clampedSpeed,
@@ -260,6 +280,7 @@ class ElevenLabsClient(
         voiceId: String,
         initialModelId: String,
         normalizedText: String,
+        normalizedLegacyText: String,
         normPrev: String?,
         normNext: String?,
         narrationSpeed: Float,
@@ -294,18 +315,72 @@ class ElevenLabsClient(
 
         var latestFailure = firstResp as TimestampsAttempt.HttpFailure
 
-        // Auto-retry once with eleven_flash_v2_5 ONLY if HTTP 422 explicitly indicates unsupported model_id
-        if (latestFailure.statusCode == 422 &&
+        // 1b. Eleven v4 automatic fallback: if /with-timestamps returns HTTP 400 or 422 for eleven_v4*,
+        // automatically fall back to POST /v1/text-to-dialogue and estimate proportional word timestamps.
+        if (isElevenV4Model(activeModelId) &&
+            (latestFailure.statusCode == 400 || latestFailure.statusCode == 422)
+        ) {
+            val dialogueUrl = "$cleanBase/v1/text-to-dialogue"
+            val dialogueAttempt = executeTextToDialogueCall(
+                url = dialogueUrl,
+                apiKey = apiKey,
+                maskedKey = maskedKey,
+                voiceId = voiceId,
+                modelId = activeModelId,
+                normalizedText = normalizedText,
+                displayWords = displayWords,
+                tempCacheDir = tempCacheDir
+            )
+            when (dialogueAttempt) {
+                is DialogueAttempt.Success -> return dialogueAttempt.output
+                is DialogueAttempt.HttpFailure -> {
+                    if (dialogueAttempt.statusCode == 422 && isUnsupportedModel422(dialogueAttempt.rawBody)) {
+                        activeModelId = FALLBACK_TTS_MODEL_ID
+                        val legacyRetry = executeWithTimestampsCall(
+                            url = timestampsUrl,
+                            apiKey = apiKey,
+                            voiceId = voiceId,
+                            modelId = activeModelId,
+                            normalizedText = normalizedLegacyText,
+                            normPrev = null,
+                            normNext = null,
+                            narrationSpeed = narrationSpeed
+                        )
+                        if (legacyRetry is TimestampsAttempt.Success) {
+                            return parseTimestampsSuccess(
+                                bodyStr = legacyRetry.bodyStr,
+                                displayWords = displayWords,
+                                maskedKey = maskedKey,
+                                endpointUrl = timestampsUrl,
+                                voiceId = voiceId,
+                                modelId = activeModelId,
+                                tempCacheDir = tempCacheDir
+                            )
+                        }
+                        latestFailure = legacyRetry as TimestampsAttempt.HttpFailure
+                    } else {
+                        throw ElevenLabsHttpException(
+                            statusCode = dialogueAttempt.statusCode,
+                            endpointUrl = dialogueUrl,
+                            voiceId = voiceId,
+                            modelId = activeModelId,
+                            rawBody = dialogueAttempt.rawBody
+                        )
+                    }
+                }
+            }
+        } else if (latestFailure.statusCode == 422 &&
             isUnsupportedModel422(latestFailure.rawBody) &&
             !activeModelId.equals(FALLBACK_TTS_MODEL_ID, ignoreCase = true)
         ) {
+            // Auto-retry once with eleven_flash_v2_5 ONLY if HTTP 422 explicitly indicates unsupported legacy model_id
             activeModelId = FALLBACK_TTS_MODEL_ID
             val retryResp = executeWithTimestampsCall(
                 url = timestampsUrl,
                 apiKey = apiKey,
                 voiceId = voiceId,
                 modelId = activeModelId,
-                normalizedText = normalizedText,
+                normalizedText = normalizedLegacyText,
                 normPrev = normPrev,
                 normNext = normNext,
                 narrationSpeed = narrationSpeed
@@ -327,13 +402,14 @@ class ElevenLabsClient(
         // 2. Fallback to standard /v1/text-to-speech/{voiceId} (Accept: audio/mpeg) if /with-timestamps returns 404 or 422
         if (latestFailure.statusCode == 404 || latestFailure.statusCode == 422) {
             val standardUrl = "$cleanBase/v1/text-to-speech/$voiceId"
+            val textForStandard = if (isElevenV4Model(activeModelId)) normalizedText else normalizedLegacyText
             return executeStandardAudioWithModelFallback(
                 url = standardUrl,
                 apiKey = apiKey,
                 maskedKey = maskedKey,
                 voiceId = voiceId,
                 initialModelId = activeModelId,
-                normalizedText = normalizedText,
+                normalizedText = textForStandard,
                 normPrev = normPrev,
                 normNext = normNext,
                 narrationSpeed = narrationSpeed,
@@ -348,6 +424,83 @@ class ElevenLabsClient(
             voiceId = voiceId,
             modelId = activeModelId,
             rawBody = latestFailure.rawBody
+        )
+    }
+
+    private sealed class DialogueAttempt {
+        data class Success(val output: TtsSynthesisOutput) : DialogueAttempt()
+        data class HttpFailure(val statusCode: Int, val rawBody: String) : DialogueAttempt()
+    }
+
+    private suspend fun executeTextToDialogueCall(
+        url: String,
+        apiKey: String,
+        maskedKey: String,
+        voiceId: String,
+        modelId: String,
+        normalizedText: String,
+        displayWords: List<String>,
+        tempCacheDir: File
+    ): DialogueAttempt {
+        val payload = buildTextToDialoguePayload(
+            normalizedText = normalizedText,
+            voiceId = voiceId,
+            modelId = modelId
+        )
+        var lastCode = 0
+        var lastBody = "<no response>"
+        var mp3Bytes: ByteArray? = null
+
+        for (retryIdx in 0..TRANSIENT_RETRY_BACKOFFS_MS.size) {
+            val req = Request.Builder()
+                .url(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .header("xi-api-key", apiKey)
+                .header("Content-Type", "application/json")
+                .header("Accept", "audio/mpeg")
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bytes = resp.body?.bytes() ?: ByteArray(0)
+                    if (bytes.isEmpty()) {
+                        throw IOException("ElevenLabs text-to-dialogue returned empty audio | URL: $url | Voice: $voiceId | Model: $modelId")
+                    }
+                    mp3Bytes = bytes
+                } else {
+                    lastCode = resp.code
+                    lastBody = resp.body?.string().orEmpty().ifBlank { "<empty body>" }
+                }
+            }
+
+            if (mp3Bytes != null) break
+            if (!isTransientHttpStatus(lastCode) || retryIdx >= TRANSIENT_RETRY_BACKOFFS_MS.size) {
+                return DialogueAttempt.HttpFailure(lastCode, lastBody)
+            }
+            delay(TRANSIENT_RETRY_BACKOFFS_MS[retryIdx])
+        }
+
+        val finalMp3 = mp3Bytes ?: return DialogueAttempt.HttpFailure(lastCode, lastBody)
+        val pcm44100Mono = audioDecoder(
+            finalMp3,
+            false,
+            tempCacheDir
+        )
+        val actualDurationMs = validateDecodedPcmOrThrow(
+            pcmBytes = pcm44100Mono,
+            endpointUrl = url,
+            voiceId = voiceId,
+            modelId = modelId
+        )
+        val proportionalTimings = buildProportionalWordTimings(displayWords, actualDurationMs)
+        return DialogueAttempt.Success(
+            TtsSynthesisOutput(
+                audioBytes = finalMp3,
+                isWav = false,
+                localWordTimings = proportionalTimings,
+                keyUsed = maskedKey,
+                decodedPcm44100Mono = pcm44100Mono
+            )
         )
     }
 
@@ -425,10 +578,10 @@ class ElevenLabsClient(
         if (mp3Bytes.isEmpty()) {
             throw IOException("ElevenLabs returned empty MP3 buffer | URL: $endpointUrl | Voice: $voiceId | Model: $modelId")
         }
-        val pcm44100Mono = AudioPcmStitcher.decodeAudioBytesToPcm44100Mono(
-            audioBytes = mp3Bytes,
-            isWav = false,
-            tempCacheDir = tempCacheDir
+        val pcm44100Mono = audioDecoder(
+            mp3Bytes,
+            false,
+            tempCacheDir
         )
         validateDecodedPcmOrThrow(
             pcmBytes = pcm44100Mono,
@@ -532,10 +685,10 @@ class ElevenLabsClient(
             modelId = activeModelId,
             rawBody = lastBody
         )
-        val pcm44100Mono = AudioPcmStitcher.decodeAudioBytesToPcm44100Mono(
-            audioBytes = finalMp3,
-            isWav = false,
-            tempCacheDir = tempCacheDir
+        val pcm44100Mono = audioDecoder(
+            finalMp3,
+            false,
+            tempCacheDir
         )
         val actualDurationMs = validateDecodedPcmOrThrow(
             pcmBytes = pcm44100Mono,
@@ -557,65 +710,114 @@ class ElevenLabsClient(
     private fun mapAlignmentToDisplayWords(
         alignment: JSONObject?,
         displayWords: List<String>
-    ): List<WordTiming> {
-        if (alignment == null || displayWords.isEmpty()) return emptyList()
-        val chars = alignment.optJSONArray("characters") ?: return emptyList()
-        val starts = alignment.optJSONArray("character_start_times_seconds") ?: return emptyList()
-        val ends = alignment.optJSONArray("character_end_times_seconds") ?: return emptyList()
-        if (chars.length() == 0) return emptyList()
-
-        val alignedWords = mutableListOf<Pair<Double, Double>>()
-        var wordStart = -1.0
-        var wordEnd = 0.0
-        for (i in 0 until chars.length()) {
-            val ch = chars.optString(i, " ")
-            val s = starts.optDouble(i, 0.0) * 1000.0
-            val e = ends.optDouble(i, s / 1000.0 + 0.05) * 1000.0
-            if (ch.isBlank()) {
-                if (wordStart >= 0.0) {
-                    alignedWords.add(wordStart to wordEnd.coerceAtLeast(wordStart + 40.0))
-                    wordStart = -1.0
-                }
-            } else {
-                if (wordStart < 0.0) wordStart = s
-                wordEnd = e
-            }
-        }
-        if (wordStart >= 0.0) {
-            alignedWords.add(wordStart to wordEnd.coerceAtLeast(wordStart + 40.0))
-        }
-
-        if (alignedWords.isEmpty()) return emptyList()
-        val totalStart = alignedWords.first().first
-        val totalEnd = alignedWords.last().second
-
-        return if (alignedWords.size == displayWords.size) {
-            displayWords.mapIndexed { idx, w ->
-                WordTiming(w, alignedWords[idx].first, alignedWords[idx].second)
-            }
-        } else {
-            val span = (totalEnd - totalStart).coerceAtLeast(300.0)
-            val totalChars = displayWords.sumOf { it.length.coerceAtLeast(1) }.toDouble()
-            var cursor = totalStart
-            displayWords.map { word ->
-                val weight = word.length.coerceAtLeast(1) / totalChars
-                val dur = span * weight
-                val wt = WordTiming(word, cursor, cursor + dur)
-                cursor += dur
-                wt
-            }
-        }
-    }
+    ): List<WordTiming> = Companion.mapAlignmentToDisplayWords(alignment, displayWords)
 
     companion object {
         const val DEFAULT_TTS_BASE_URL = "https://api.elevenlabs.io"
         const val DEFAULT_VOICE_ID = "N2IVS1w4EtoT3dr4eOWO"
-        const val DEFAULT_TTS_MODEL_ID = "eleven_multilingual_v2"
+        const val DEFAULT_TTS_MODEL_ID = "eleven_v4"
+        const val TURBO_V4_TTS_MODEL_ID = "eleven_v4_turbo"
+        const val LEGACY_TTS_MODEL_ID = "eleven_multilingual_v2"
         const val FALLBACK_TTS_MODEL_ID = "eleven_flash_v2_5"
         const val MIN_NARRATION_SPEED = 0.85f
         const val MAX_NARRATION_SPEED = 1.15f
         const val MIN_DECODED_AUDIO_DURATION_MS = 600.0
         val TRANSIENT_RETRY_BACKOFFS_MS = longArrayOf(2000L, 4000L, 8000L)
+
+        val SUPPORTED_TTS_MODEL_PRESETS = listOf(
+            TtsModelPreset(
+                id = DEFAULT_TTS_MODEL_ID,
+                title = "eleven_v4",
+                subtitle = "Default — Most Expressive / Voice Acting"
+            ),
+            TtsModelPreset(
+                id = TURBO_V4_TTS_MODEL_ID,
+                title = "eleven_v4_turbo",
+                subtitle = "Low-Latency Expressive"
+            ),
+            TtsModelPreset(
+                id = LEGACY_TTS_MODEL_ID,
+                title = "eleven_multilingual_v2",
+                subtitle = "Legacy Stable"
+            )
+        )
+
+        fun isElevenV4Model(modelId: String): Boolean =
+            cleanCredential(modelId).startsWith("eleven_v4", ignoreCase = true)
+
+        fun mapAlignmentToDisplayWords(
+            alignment: JSONObject?,
+            displayWords: List<String>
+        ): List<WordTiming> {
+            val cleanDisplayWords = displayWords
+                .map { KaraokeCaptionRenderer.stripAudioTags(it) }
+                .filter { it.isNotBlank() }
+            if (alignment == null || cleanDisplayWords.isEmpty()) return emptyList()
+            val chars = alignment.optJSONArray("characters") ?: return emptyList()
+            val starts = alignment.optJSONArray("character_start_times_seconds") ?: return emptyList()
+            val ends = alignment.optJSONArray("character_end_times_seconds") ?: return emptyList()
+            if (chars.length() == 0) return emptyList()
+
+            val alignedWords = mutableListOf<Pair<Double, Double>>()
+            var wordStart = -1.0
+            var wordEnd = 0.0
+            var insideBracketTag = false
+
+            for (i in 0 until chars.length()) {
+                val ch = chars.optString(i, " ")
+                if (insideBracketTag) {
+                    if (ch.contains(']')) {
+                        insideBracketTag = false
+                    }
+                    continue
+                }
+                if (ch.contains('[')) {
+                    if (wordStart >= 0.0) {
+                        alignedWords.add(wordStart to wordEnd.coerceAtLeast(wordStart + 40.0))
+                        wordStart = -1.0
+                    }
+                    if (!ch.contains(']')) {
+                        insideBracketTag = true
+                    }
+                    continue
+                }
+                val s = starts.optDouble(i, 0.0) * 1000.0
+                val e = ends.optDouble(i, s / 1000.0 + 0.05) * 1000.0
+                if (ch.isBlank()) {
+                    if (wordStart >= 0.0) {
+                        alignedWords.add(wordStart to wordEnd.coerceAtLeast(wordStart + 40.0))
+                        wordStart = -1.0
+                    }
+                } else {
+                    if (wordStart < 0.0) wordStart = s
+                    wordEnd = e
+                }
+            }
+            if (wordStart >= 0.0) {
+                alignedWords.add(wordStart to wordEnd.coerceAtLeast(wordStart + 40.0))
+            }
+
+            if (alignedWords.isEmpty()) return emptyList()
+            val totalStart = alignedWords.first().first
+            val totalEnd = alignedWords.last().second
+
+            return if (alignedWords.size == cleanDisplayWords.size) {
+                cleanDisplayWords.mapIndexed { idx, w ->
+                    WordTiming(w, alignedWords[idx].first, alignedWords[idx].second)
+                }
+            } else {
+                val span = (totalEnd - totalStart).coerceAtLeast(300.0)
+                val totalChars = cleanDisplayWords.sumOf { it.length.coerceAtLeast(1) }.toDouble()
+                var cursor = totalStart
+                cleanDisplayWords.map { word ->
+                    val weight = word.length.coerceAtLeast(1) / totalChars
+                    val dur = span * weight
+                    val wt = WordTiming(word, cursor, cursor + dur)
+                    cursor += dur
+                    wt
+                }
+            }
+        }
 
         fun isTransientHttpStatus(statusCode: Int): Boolean =
             statusCode == 429 || statusCode in 500..599
@@ -692,8 +894,22 @@ class ElevenLabsClient(
             narrationSpeed: Float = 1.0f,
             modelId: String = DEFAULT_TTS_MODEL_ID
         ): JSONObject {
-            val speedDouble = clampNarrationSpeed(narrationSpeed)
             val cleanModel = cleanCredential(modelId).ifBlank { DEFAULT_TTS_MODEL_ID }
+            if (isElevenV4Model(cleanModel)) {
+                // Eleven v4 validation rejects unsupported language_code/speed fields on /with-timestamps:
+                // send ONLY text, model_id, and voice_settings.
+                return JSONObject().apply {
+                    put("text", normalizedText)
+                    put("model_id", cleanModel)
+                    put("voice_settings", JSONObject().apply {
+                        put("stability", 0.45)
+                        put("similarity_boost", 0.78)
+                        put("style", 0.35)
+                        put("use_speaker_boost", true)
+                    })
+                }
+            }
+            val speedDouble = clampNarrationSpeed(narrationSpeed)
             return JSONObject().apply {
                 put("text", normalizedText)
                 put("model_id", cleanModel)
@@ -703,7 +919,31 @@ class ElevenLabsClient(
                     put("stability", 0.45)
                     put("similarity_boost", 0.78)
                     put("style", 0.35)
+                    put("use_speaker_boost", true)
                     put("speed", speedDouble)
+                })
+            }
+        }
+
+        fun buildTextToDialoguePayload(
+            normalizedText: String,
+            voiceId: String,
+            modelId: String = DEFAULT_TTS_MODEL_ID
+        ): JSONObject {
+            val cleanModel = cleanCredential(modelId).ifBlank { DEFAULT_TTS_MODEL_ID }
+            val cleanVoice = cleanCredential(voiceId)
+            return JSONObject().apply {
+                put("model_id", cleanModel)
+                put("inputs", JSONArray().apply {
+                    put(
+                        JSONObject().apply {
+                            put("text", normalizedText)
+                            put("voice_id", cleanVoice)
+                        }
+                    )
+                })
+                put("settings", JSONObject().apply {
+                    put("stability", 0.45)
                 })
             }
         }

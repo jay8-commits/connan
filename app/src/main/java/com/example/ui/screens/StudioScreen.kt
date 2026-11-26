@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MovieCreation
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueuePlayNext
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Settings
@@ -157,6 +159,7 @@ fun StudioScreen(
     val demoPill by viewModel.demoStatusPill.collectAsStateWithLifecycle()
     val demoHudWidget by viewModel.demoHudWidget.collectAsStateWithLifecycle()
     val demoShotFraming by viewModel.demoShotFraming.collectAsStateWithLifecycle()
+    val stagedRenderQueue by viewModel.stagedRenderQueue.collectAsStateWithLifecycle()
 
     val scriptSourceMode = settings.effectiveScriptSourceMode
     val activeTemplate = settings.activeTemplate
@@ -255,6 +258,10 @@ fun StudioScreen(
                         clipboardManager.setText(AnnotatedString(DirectStoryboardParser.COPY_JSON_TEMPLATE))
                         viewModel.notifyMessage("Copied JSON storyboard template to clipboard")
                     },
+                    onCopyGodPrompt = {
+                        clipboardManager.setText(AnnotatedString(MotionHtmlDirector.MASTER_CONTENT_GOD_PROMPT_V2.trim()))
+                        viewModel.notifyMessage("Copied Master Content God Prompt v2 to clipboard")
+                    },
                     onClear = { viewModel.updateDirectScriptText("") }
                 )
             }
@@ -305,13 +312,21 @@ fun StudioScreen(
                             )
                         }
                         Surface(
-                            color = ForgeMint.copy(alpha = 0.14f),
+                            color = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) {
+                                ForgeCyan.copy(alpha = 0.16f)
+                            } else {
+                                ForgeMint.copy(alpha = 0.14f)
+                            },
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "JSON Schema Locked",
+                                text = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) {
+                                    "HTML5 God Prompt v2"
+                                } else {
+                                    "JSON Schema Locked"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = ForgeMint,
+                                color = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) ForgeCyan else ForgeMint,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
@@ -759,49 +774,142 @@ fun StudioScreen(
                 onClearBgm = { viewModel.clearCustomBgm() }
             )
 
-            // 5. GENERATE VIDEO CTA + LIVE PIPELINE STEPPER
+            // 5. GENERATE VIDEO CTA + ADD TO BATCH QUEUE (UP TO 5) + LIVE PIPELINE STEPPER
+            val activePlusQueued = if (progress.isRunning) {
+                1 + progress.queuedBatchCount
+            } else {
+                stagedRenderQueue.size
+            }
+            val maxQueue = com.example.service.VideoGenerationService.MAX_BATCH_QUEUE_SIZE
+
             if (!progress.isRunning) {
-                Button(
-                    onClick = { triggerGenerate() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                        .testTag("generate_video_button"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ForgeCoral)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.MovieCreation,
-                        contentDescription = "Generate Video"
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when (productionMode) {
-                            ProductionMode.CLIP_AUTO_EDITOR -> "Finish Clips + Auto-HUD (1080x1920)"
-                            ProductionMode.CROSS_SECTION_EXPLAINER -> "Generate 2D Cutaway Video (1080x1920)"
-                            ProductionMode.FULL_AI_STORY -> "Generate Animated Video (1080x1920)"
-                        },
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Button(
+                        onClick = { triggerGenerate() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp)
+                            .testTag("generate_video_button"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ForgeCoral)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MovieCreation,
+                            contentDescription = "Generate Video"
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (stagedRenderQueue.isNotEmpty()) {
+                                "Render Batch (${stagedRenderQueue.size})"
+                            } else {
+                                when (productionMode) {
+                                    ProductionMode.CLIP_AUTO_EDITOR -> "Clips + Auto-HUD"
+                                    ProductionMode.CROSS_SECTION_EXPLAINER -> "Generate Cutaway"
+                                    ProductionMode.FULL_AI_STORY -> "Generate Video"
+                                }
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput) },
+                        enabled = stagedRenderQueue.size < maxQueue,
+                        border = BorderStroke(1.5.dp, ForgeCyan.copy(alpha = 0.8f)),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .height(54.dp)
+                            .testTag("add_to_queue_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = "Add to Queue",
+                            tint = ForgeCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (stagedRenderQueue.isEmpty()) "Add to Queue" else "Queue (${stagedRenderQueue.size}/$maxQueue)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = ForgeCyan,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
                 }
             } else {
-                OutlinedButton(
-                    onClick = { viewModel.cancelGeneration() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("cancel_render_button"),
-                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Cancel",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cancel Active Render", color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(
+                        onClick = { viewModel.cancelGeneration() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                            .testTag("cancel_render_button"),
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Cancel",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (progress.totalBatchCount > 1) {
+                                "Cancel Batch (${progress.currentBatchIndex}/${progress.totalBatchCount})"
+                            } else {
+                                "Cancel Render"
+                            },
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput) },
+                        enabled = activePlusQueued < maxQueue,
+                        border = BorderStroke(1.5.dp, ForgeCyan.copy(alpha = 0.8f)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .height(50.dp)
+                            .testTag("add_to_queue_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.QueuePlayNext,
+                            contentDescription = "Add to Queue",
+                            tint = ForgeCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "Queue ($activePlusQueued/$maxQueue)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = ForgeCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
+            }
+
+            if (stagedRenderQueue.isNotEmpty() && !progress.isRunning) {
+                BatchQueuePreviewCard(
+                    items = stagedRenderQueue,
+                    maxCount = maxQueue,
+                    onRemove = { id -> viewModel.removeQueuedRenderItem(id) },
+                    onClear = { viewModel.clearRenderQueue() }
+                )
             }
 
             // Live Step-by-Step Progress Card
@@ -1037,6 +1145,7 @@ private fun DirectScriptInputCard(
     onScriptChange: (String) -> Unit,
     onImportFile: () -> Unit,
     onCopyTemplate: () -> Unit,
+    onCopyGodPrompt: () -> Unit,
     onClear: () -> Unit
 ) {
     val summary = remember(scriptText) {
@@ -1091,41 +1200,41 @@ private fun DirectScriptInputCard(
                 }
             }
 
-                    Text(
-                        text = "Zero LLM/Horde network calls. Paste full scene JSON, raw HTML5/SVG animation code, or plain Tagalog text — renders directly to ElevenLabs TTS + 1080x1920 MP4.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            Text(
+                text = "Zero LLM/Horde network calls. Paste full scene JSON, raw HTML5/SVG animation code, or plain Tagalog text — renders directly to ElevenLabs TTS + 1080x1920 MP4.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onImportFile,
-                            border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 48.dp)
-                                .testTag("import_direct_script_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.FileUpload,
-                                contentDescription = "Import HTML, SVG, JSON, or TXT file",
-                                tint = ForgeCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "Import HTML/SVG/JSON/TXT",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = ForgeCyan,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            OutlinedButton(
+                onClick = onImportFile,
+                border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("import_direct_script_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.FileUpload,
+                    contentDescription = "Import HTML, SVG, JSON, or TXT file",
+                    tint = ForgeCyan,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "Import HTML / SVG / JSON / TXT",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ForgeCyan,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
                     onClick = onCopyTemplate,
                     border = BorderStroke(1.dp, ForgeMint.copy(alpha = 0.65f)),
@@ -1146,6 +1255,31 @@ private fun DirectScriptInputCard(
                         text = "Copy JSON Template",
                         style = MaterialTheme.typography.labelMedium,
                         color = ForgeMint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onCopyGodPrompt,
+                    border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.72f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("copy_god_prompt_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "Copy God Prompt",
+                        tint = ForgeAmber,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Copy God Prompt",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = ForgeAmber,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1189,6 +1323,90 @@ private fun DirectScriptInputCard(
                             text = "Clear Script",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatchQueuePreviewCard(
+    items: List<com.example.ui.viewmodel.QueuedRenderUiItem>,
+    maxCount: Int,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = StudioSurfaceElevated),
+        border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.45f)),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("batch_queue_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Batch Render Queue (${items.size}/$maxCount)",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = ForgeCyan,
+                    fontWeight = FontWeight.Bold
+                )
+                TextButton(
+                    onClick = onClear,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Clear All", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            items.forEachIndexed { idx, item ->
+                Surface(
+                    color = StudioSurface,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, StudioOutline)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "#${idx + 1} • ${item.title}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = item.summary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ForgeMint,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = { onRemove(item.id) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Remove queued item",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

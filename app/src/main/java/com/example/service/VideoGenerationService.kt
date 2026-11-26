@@ -48,15 +48,29 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class RenderBatchItem(
+    val topic: String,
+    val style: AnimationStyle,
+    val durationSec: Int,
+    val voiceIdOverride: String,
+    val productionMode: ProductionMode,
+    val importedClipUris: List<Uri>,
+    val scriptSourceModeOverride: ScriptSourceMode?,
+    val directScriptOverride: String
+)
+
 class VideoGenerationService : Service() {
 
     companion object {
         const val ACTION_START = "com.example.action.START_GENERATION"
+        const val ACTION_ENQUEUE = "com.example.action.ENQUEUE_GENERATION"
         const val ACTION_CANCEL = "com.example.action.CANCEL_GENERATION"
         const val EXTRA_TOPIC = "extra_topic"
         const val EXTRA_STYLE = "extra_style"
@@ -66,94 +80,348 @@ class VideoGenerationService : Service() {
         const val EXTRA_IMPORTED_CLIP_URIS = "extra_imported_clip_uris"
         const val EXTRA_SCRIPT_SOURCE_MODE = "extra_script_source_mode"
         const val EXTRA_DIRECT_SCRIPT = "extra_direct_script"
+        const val EXTRA_BATCH_QUEUE_FILE = "extra_batch_queue_file"
+        const val MAX_BATCH_QUEUE_SIZE = 5
 
         private const val CHANNEL_ID = "toonforge_render_channel"
         private const val NOTIFICATION_ID = 4201
+
+        fun serializeBatchItemsToJson(items: List<RenderBatchItem>): String {
+            val arr = JSONArray()
+            items.take(MAX_BATCH_QUEUE_SIZE).forEach { item ->
+                arr.put(
+                    JSONObject().apply {
+                        put("topic", item.topic)
+                        put("style", item.style.name)
+                        put("duration_sec", item.durationSec)
+                        put("voice_id", item.voiceIdOverride)
+                        put("production_mode", item.productionMode.name)
+                        put("script_source_mode", item.scriptSourceModeOverride?.name.orEmpty())
+                        put("direct_script", item.directScriptOverride)
+                        put("clip_uris", JSONArray(item.importedClipUris.map { it.toString() }))
+                    }
+                )
+            }
+            return arr.toString()
+        }
+
+        fun deserializeBatchItemsFromJson(rawJson: String): List<RenderBatchItem> {
+            return runCatching {
+                val arr = JSONArray(rawJson)
+                buildList {
+                    for (i in 0 until minOf(MAX_BATCH_QUEUE_SIZE, arr.length())) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val rawClips = obj.optJSONArray("clip_uris")
+                        val clips = buildList {
+                            if (rawClips != null) {
+                                for (k in 0 until rawClips.length()) {
+                                    val s = rawClips.optString(k, "").trim()
+                                    if (s.isNotEmpty()) {
+                                        runCatching { Uri.parse(s) }.getOrNull()?.let { add(it) }
+                                    }
+                                }
+                            }
+                        }
+                        val styleName = obj.optString("style", AnimationStyle.ATMOSPHERIC_2D_STORY.name)
+                        val style = AnimationStyle.entries.firstOrNull { it.name == styleName }
+                            ?: AnimationStyle.ATMOSPHERIC_2D_STORY
+                        val modeName = obj.optString("script_source_mode", "")
+                        val sourceMode = modeName.takeIf { it.isNotBlank() }?.let { ScriptSourceMode.fromRaw(it) }
+                        add(
+                            RenderBatchItem(
+                                topic = obj.optString("topic", "").trim(),
+                                style = style,
+                                durationSec = obj.optInt("duration_sec", 30),
+                                voiceIdOverride = obj.optString("voice_id", ""),
+                                productionMode = ProductionMode.fromRaw(obj.optString("production_mode", "")),
+                                importedClipUris = clips,
+                                scriptSourceModeOverride = sourceMode,
+                                directScriptOverride = obj.optString("direct_script", "")
+                            )
+                        )
+                    }
+                }
+            }.getOrDefault(emptyList())
+        }
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var activeJob: Job? = null
+    private val queueLock = Any()
+    private val renderQueue = ArrayDeque<RenderBatchItem>()
+    private var totalBatchCount = 0
+    private var completedBatchCount = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun extractBatchItemsFromIntent(intent: Intent): List<RenderBatchItem> {
+        val queueFilePath = intent.getStringExtra(EXTRA_BATCH_QUEUE_FILE).orEmpty()
+        if (queueFilePath.isNotBlank()) {
+            val file = File(queueFilePath)
+            if (file.exists() && file.canRead()) {
+                val parsed = runCatching {
+                    val raw = file.readText(Charsets.UTF_8)
+                    deserializeBatchItemsFromJson(raw)
+                }.getOrDefault(emptyList())
+                runCatching { file.delete() }
+                if (parsed.isNotEmpty()) return parsed
+            }
+        }
+
+        val topic = intent.getStringExtra(EXTRA_TOPIC).orEmpty().trim()
+        val styleName = intent.getStringExtra(EXTRA_STYLE) ?: AnimationStyle.ATMOSPHERIC_2D_STORY.name
+        val style = AnimationStyle.entries.firstOrNull { it.name == styleName }
+            ?: AnimationStyle.ATMOSPHERIC_2D_STORY
+        val durationSec = intent.getIntExtra(EXTRA_DURATION_SEC, 30)
+        val voiceId = intent.getStringExtra(EXTRA_VOICE_ID).orEmpty()
+        val productionMode = ProductionMode.fromRaw(intent.getStringExtra(EXTRA_PRODUCTION_MODE))
+        val importedClipUris = intent.getStringArrayListExtra(EXTRA_IMPORTED_CLIP_URIS)
+            ?.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
+            .orEmpty()
+        val scriptSourceModeOverride = intent.getStringExtra(EXTRA_SCRIPT_SOURCE_MODE)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { ScriptSourceMode.fromRaw(it) }
+        val directScriptOverride = intent.getStringExtra(EXTRA_DIRECT_SCRIPT).orEmpty()
+        val effectiveTopic = topic.ifBlank {
+            if (directScriptOverride.isNotBlank()) {
+                DirectStoryboardParser.deriveTopicTitle(directScriptOverride)
+            } else {
+                ""
+            }
+        }
+        val effectiveStyle = if (productionMode == ProductionMode.CROSS_SECTION_EXPLAINER) {
+            AnimationStyle.CROSS_SECTION
+        } else {
+            style
+        }
+        if (effectiveTopic.isEmpty() && directScriptOverride.isBlank()) {
+            return emptyList()
+        }
+        return listOf(
+            RenderBatchItem(
+                topic = effectiveTopic.ifBlank { "Direct Tagalog Story" },
+                style = effectiveStyle,
+                durationSec = durationSec,
+                voiceIdOverride = voiceId,
+                productionMode = productionMode,
+                importedClipUris = importedClipUris,
+                scriptSourceModeOverride = scriptSourceModeOverride,
+                directScriptOverride = directScriptOverride
+            )
+        )
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CANCEL -> {
+                synchronized(queueLock) {
+                    renderQueue.clear()
+                    totalBatchCount = 0
+                    completedBatchCount = 0
+                }
                 activeJob?.cancel()
                 PipelineProgressBus.update {
                     it.copy(
                         isRunning = false,
                         step = PipelineStep.IDLE,
-                        statusMessage = "Render cancelled by user"
+                        statusMessage = "Render cancelled by user",
+                        queuedBatchCount = 0,
+                        currentBatchIndex = 0,
+                        totalBatchCount = 0
                     )
                 }
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_START -> {
-                val topic = intent.getStringExtra(EXTRA_TOPIC).orEmpty().trim()
-                val styleName = intent.getStringExtra(EXTRA_STYLE) ?: AnimationStyle.ATMOSPHERIC_2D_STORY.name
-                val style = AnimationStyle.entries.firstOrNull { it.name == styleName }
-                    ?: AnimationStyle.ATMOSPHERIC_2D_STORY
-                val durationSec = intent.getIntExtra(EXTRA_DURATION_SEC, 30)
-                val voiceId = intent.getStringExtra(EXTRA_VOICE_ID).orEmpty()
-                val productionMode = ProductionMode.fromRaw(intent.getStringExtra(EXTRA_PRODUCTION_MODE))
-                val importedClipUris = intent.getStringArrayListExtra(EXTRA_IMPORTED_CLIP_URIS)
-                    ?.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
-                    .orEmpty()
-                val scriptSourceModeOverride = intent.getStringExtra(EXTRA_SCRIPT_SOURCE_MODE)
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { ScriptSourceMode.fromRaw(it) }
-                val directScriptOverride = intent.getStringExtra(EXTRA_DIRECT_SCRIPT).orEmpty()
-                val effectiveTopic = topic.ifBlank {
-                    if (directScriptOverride.isNotBlank()) {
-                        DirectStoryboardParser.deriveTopicTitle(directScriptOverride)
+            ACTION_ENQUEUE -> {
+                val incoming = extractBatchItemsFromIntent(intent)
+                if (incoming.isEmpty()) {
+                    if (activeJob?.isActive != true) stopSelf()
+                    return START_NOT_STICKY
+                }
+                val shouldStartLoop: Boolean
+                val queuedSnapshot: Int
+                val totalSnapshot: Int
+                synchronized(queueLock) {
+                    val activeOffset = if (activeJob?.isActive == true) 1 else 0
+                    val availableSlots = (MAX_BATCH_QUEUE_SIZE - (renderQueue.size + activeOffset)).coerceAtLeast(0)
+                    incoming.take(availableSlots).forEach { renderQueue.addLast(it) }
+                    if (activeJob?.isActive == true) {
+                        totalBatchCount = (completedBatchCount + activeOffset + renderQueue.size).coerceAtMost(MAX_BATCH_QUEUE_SIZE)
                     } else {
-                        ""
+                        totalBatchCount = renderQueue.size
+                        completedBatchCount = 0
                     }
+                    queuedSnapshot = renderQueue.size
+                    totalSnapshot = totalBatchCount
+                    shouldStartLoop = activeJob?.isActive != true
                 }
-                val effectiveStyle = if (productionMode == ProductionMode.CROSS_SECTION_EXPLAINER) {
-                    AnimationStyle.CROSS_SECTION
-                } else {
-                    style
+                PipelineProgressBus.update { cur ->
+                    cur.copy(
+                        queuedBatchCount = queuedSnapshot,
+                        totalBatchCount = totalSnapshot
+                    )
                 }
-
-                if (effectiveTopic.isEmpty() && directScriptOverride.isBlank()) {
+                if (shouldStartLoop) {
+                    startQueueForegroundAndRun()
+                }
+            }
+            ACTION_START -> {
+                val incoming = extractBatchItemsFromIntent(intent)
+                if (incoming.isEmpty()) {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-
-                ensureNotificationChannel()
-                val initialNotif = buildNotification("Starting ToonForge Tagalog pipeline...", 5)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        initialNotif,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                } else {
-                    startForeground(NOTIFICATION_ID, initialNotif)
+                synchronized(queueLock) {
+                    renderQueue.clear()
+                    incoming.take(MAX_BATCH_QUEUE_SIZE).forEach { renderQueue.addLast(it) }
+                    totalBatchCount = renderQueue.size
+                    completedBatchCount = 0
                 }
-
                 activeJob?.cancel()
-                activeJob = serviceScope.launch {
-                    runPipeline(
-                        topic = effectiveTopic.ifBlank { "Direct Tagalog Story" },
-                        style = effectiveStyle,
-                        durationSec = durationSec,
-                        voiceIdOverride = voiceId,
-                        productionMode = productionMode,
-                        importedClipUris = importedClipUris,
-                        scriptSourceModeOverride = scriptSourceModeOverride,
-                        directScriptOverride = directScriptOverride
-                    )
-                }
+                startQueueForegroundAndRun()
             }
         }
         return START_NOT_STICKY
     }
 
+    private fun startQueueForegroundAndRun() {
+        ensureNotificationChannel()
+        val initialNotif = buildNotification("Starting ToonForge Tagalog pipeline...", 5)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                initialNotif,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, initialNotif)
+        }
+
+        activeJob = serviceScope.launch {
+            processRenderQueue()
+        }
+    }
+
+    private suspend fun processRenderQueue() {
+        var lastSuccessResult: com.example.render.ExportResult? = null
+        var lastFailureMessage: String? = null
+        try {
+            while (true) {
+                val nextItem: RenderBatchItem?
+                val batchIdx: Int
+                val batchTotal: Int
+                val remainingCount: Int
+                synchronized(queueLock) {
+                    nextItem = renderQueue.removeFirstOrNull()
+                    remainingCount = renderQueue.size
+                    batchIdx = completedBatchCount + 1
+                    batchTotal = maxOf(totalBatchCount, completedBatchCount + (if (nextItem != null) 1 else 0) + remainingCount)
+                    totalBatchCount = batchTotal
+                }
+                if (nextItem == null) break
+
+                PipelineProgressBus.update { cur ->
+                    cur.copy(
+                        isRunning = true,
+                        currentBatchIndex = batchIdx,
+                        totalBatchCount = batchTotal,
+                        queuedBatchCount = remainingCount,
+                        completedBatchCount = completedBatchCount
+                    )
+                }
+
+                val itemOutcome = runPipeline(
+                    topic = nextItem.topic.ifBlank { "Direct Tagalog Story" },
+                    style = nextItem.style,
+                    durationSec = nextItem.durationSec,
+                    voiceIdOverride = nextItem.voiceIdOverride,
+                    productionMode = nextItem.productionMode,
+                    importedClipUris = nextItem.importedClipUris,
+                    scriptSourceModeOverride = nextItem.scriptSourceModeOverride,
+                    directScriptOverride = nextItem.directScriptOverride,
+                    batchIndex = batchIdx,
+                    batchTotal = batchTotal
+                )
+
+                if (itemOutcome.exportResult != null) {
+                    lastSuccessResult = itemOutcome.exportResult
+                    synchronized(queueLock) {
+                        completedBatchCount++
+                    }
+                    val doneNow = completedBatchCount
+                    val remNow = synchronized(queueLock) { renderQueue.size }
+                    PipelineProgressBus.update { cur ->
+                        cur.copy(
+                            completedBatchCount = doneNow,
+                            queuedBatchCount = remNow,
+                            outputVideoUri = itemOutcome.exportResult.mediaStoreUri,
+                            outputDisplayName = itemOutcome.exportResult.displayName
+                        )
+                    }
+                } else {
+                    lastFailureMessage = itemOutcome.errorMessage
+                }
+            }
+
+            val totalDone = completedBatchCount
+            val finalTotal = totalBatchCount.coerceAtLeast(totalDone)
+            if (lastSuccessResult != null) {
+                val finalMsg = if (finalTotal > 1) {
+                    "Batch finished: $totalDone/$finalTotal video(s) saved to Movies/ToonForgeTagalog!"
+                } else {
+                    "Saved ${lastSuccessResult.displayName} to Movies/ToonForgeTagalog!"
+                }
+                PipelineProgressBus.update { cur ->
+                    cur.copy(
+                        step = PipelineStep.COMPLETED,
+                        stepProgress = 1f,
+                        overallProgress = 1f,
+                        statusMessage = finalMsg,
+                        outputVideoUri = lastSuccessResult.mediaStoreUri,
+                        outputDisplayName = lastSuccessResult.displayName,
+                        errorMessage = null,
+                        isRunning = false,
+                        queuedBatchCount = 0,
+                        currentBatchIndex = finalTotal,
+                        totalBatchCount = finalTotal,
+                        completedBatchCount = totalDone
+                    )
+                }
+                updateNotification(finalMsg, 100)
+            } else if (lastFailureMessage != null) {
+                PipelineProgressBus.update { cur ->
+                    cur.copy(
+                        step = PipelineStep.ERROR,
+                        statusMessage = "Failed: $lastFailureMessage",
+                        errorMessage = lastFailureMessage,
+                        isRunning = false,
+                        queuedBatchCount = 0
+                    )
+                }
+                updateNotification("Render failed: $lastFailureMessage", 0)
+            }
+        } catch (ce: CancellationException) {
+            PipelineProgressBus.update { cur ->
+                cur.copy(
+                    step = PipelineStep.IDLE,
+                    statusMessage = "Render cancelled",
+                    isRunning = false,
+                    queuedBatchCount = 0
+                )
+            }
+            throw ce
+        } finally {
+            stopForegroundCompat()
+            stopSelf()
+        }
+    }
+
+    private data class SingleRenderOutcome(
+        val exportResult: com.example.render.ExportResult? = null,
+        val errorMessage: String? = null
+    )
     private suspend fun runPipeline(
         topic: String,
         style: AnimationStyle,
@@ -162,8 +430,10 @@ class VideoGenerationService : Service() {
         productionMode: ProductionMode,
         importedClipUris: List<Uri>,
         scriptSourceModeOverride: ScriptSourceMode?,
-        directScriptOverride: String
-    ) {
+        directScriptOverride: String,
+        batchIndex: Int = 1,
+        batchTotal: Int = 1
+    ): SingleRenderOutcome {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -219,18 +489,21 @@ class VideoGenerationService : Service() {
                 } else {
                     "Missing required credentials (${missingCreds.joinToString(", ")}). Please configure them in API & Settings."
                 }
-                PipelineProgressBus.update { cur ->
-                    cur.copy(
-                        step = PipelineStep.ERROR,
-                        statusMessage = errMsg,
-                        errorMessage = errMsg,
-                        isRunning = false
-                    )
+                if (batchTotal <= 1) {
+                    PipelineProgressBus.update { cur ->
+                        cur.copy(
+                            step = PipelineStep.ERROR,
+                            statusMessage = errMsg,
+                            errorMessage = errMsg,
+                            isRunning = false
+                        )
+                    }
+                    updateNotification("Setup required: configure Studio / API & Settings", 0)
                 }
-                updateNotification("Setup required: configure Studio / API & Settings", 0)
-                return
+                return SingleRenderOutcome(errorMessage = errMsg)
             }
             val galleryRepo = VideoGalleryRepository(applicationContext)
+            val batchPrefix = if (batchTotal > 1) "[Batch $batchIndex/$batchTotal] " else ""
 
             fun publish(
                 step: PipelineStep,
@@ -241,12 +514,13 @@ class VideoGenerationService : Service() {
                 sceneCount: Int = 0,
                 providerInfo: String? = null
             ) {
+                val prefixedMsg = "$batchPrefix$message"
                 PipelineProgressBus.update { cur ->
                     cur.copy(
                         step = step,
                         stepProgress = stepProgress.coerceIn(0f, 1f),
                         overallProgress = overall.coerceIn(0f, 1f),
-                        statusMessage = message,
+                        statusMessage = prefixedMsg,
                         currentSceneIndex = sceneIdx,
                         sceneCount = if (sceneCount > 0) sceneCount else cur.sceneCount,
                         providerInfo = providerInfo ?: cur.providerInfo,
@@ -254,7 +528,7 @@ class VideoGenerationService : Service() {
                         isRunning = true
                     )
                 }
-                updateNotification(message, (overall * 100).toInt().coerceIn(0, 100))
+                updateNotification(prefixedMsg, (overall * 100).toInt().coerceIn(0, 100))
             }
 
             // STEP 1: SCRIPT GENERATION (Strict 3-mode routing — Direct Script / Custom LLM / AI Horde)
@@ -264,17 +538,16 @@ class VideoGenerationService : Service() {
                 ScriptSourceMode.CUSTOM_LLM -> "Directing Tagalog story script..."
             }
             publish(PipelineStep.SCRIPT, 0.1f, 0.05f, initialScriptMsg)
-            var directCustomHtmlDoc: String? = null
             val scriptResult = when (activeScriptMode) {
                 ScriptSourceMode.DIRECT_SCRIPT -> {
                     val parsed = DirectStoryboardParser.parse(
                         rawInput = effectiveDirectScript,
                         style = style
                     )
-                    directCustomHtmlDoc = parsed.customHtmlDocument
                     LlmScriptResult(
                         scenes = parsed.scenes,
-                        providerUsed = parsed.providerLabel
+                        providerUsed = parsed.providerLabel,
+                        customHtmlDocument = parsed.customHtmlDocument
                     )
                 }
                 ScriptSourceMode.AI_HORDE -> {
@@ -300,6 +573,7 @@ class VideoGenerationService : Service() {
                     )
                 }
             }
+            val directCustomHtmlDoc: String? = scriptResult.customHtmlDocument
             val scenes = scriptResult.scenes
             publish(
                 PipelineStep.SCRIPT,
@@ -372,7 +646,8 @@ class VideoGenerationService : Service() {
                 style = style,
                 customBgmPcm44100Mono = customBgmPcm,
                 targetDurationMs = durationSec * 1000.0,
-                alwaysTriggerSceneBoundarySfx = (directCustomHtmlDoc != null)
+                alwaysTriggerSceneBoundarySfx = (directCustomHtmlDoc != null),
+                loopTailPaddingMs = AudioPcmStitcher.SEAMLESS_LOOP_TAIL_MS
             )
             pcmPerScene.clear() // release per-scene chunks immediately; keep unified buffer
 
@@ -636,43 +911,23 @@ class VideoGenerationService : Service() {
                 customSprites = customSprites,
                 externalClipFrameSource = externalClipFrameSource,
                 frameBitmapProvider = frameProvider,
-                overlayCaptionsOnCustomFrames = (directCustomHtmlDoc != null)
+                overlayCaptionsOnCustomFrames = (directCustomHtmlDoc != null),
+                videoBitrate = DeterministicVideoExporter.VIDEO_BITRATE
             )
 
             PipelineProgressBus.update { cur ->
                 cur.copy(
-                    step = PipelineStep.COMPLETED,
-                    stepProgress = 1f,
-                    overallProgress = 1f,
-                    statusMessage = "Saved ${exportRes.displayName} to Movies/ToonForgeTagalog!",
+                    generatedScenesPreview = previewScenes,
                     outputVideoUri = exportRes.mediaStoreUri,
-                    outputDisplayName = exportRes.displayName,
-                    errorMessage = null,
-                    isRunning = false,
-                    generatedScenesPreview = previewScenes
+                    outputDisplayName = exportRes.displayName
                 )
             }
-            updateNotification("Video ready: ${exportRes.displayName}", 100)
+            return SingleRenderOutcome(exportResult = exportRes)
         } catch (ce: CancellationException) {
-            PipelineProgressBus.update { cur ->
-                cur.copy(
-                    step = PipelineStep.IDLE,
-                    statusMessage = "Render cancelled",
-                    isRunning = false
-                )
-            }
             throw ce
         } catch (e: Exception) {
             val msg = e.message ?: "Unexpected rendering error"
-            PipelineProgressBus.update { cur ->
-                cur.copy(
-                    step = PipelineStep.ERROR,
-                    statusMessage = "Failed: $msg",
-                    errorMessage = msg,
-                    isRunning = false
-                )
-            }
-            updateNotification("Render failed: $msg", 0)
+            return SingleRenderOutcome(errorMessage = msg)
         } finally {
             // Strict temporary file & bitmap memory hygiene
             renderBackdrops.forEach { bmp ->
@@ -690,8 +945,6 @@ class VideoGenerationService : Service() {
             runCatching {
                 if (wakeLock.isHeld) wakeLock.release()
             }
-            stopForegroundCompat()
-            stopSelf()
         }
     }
 

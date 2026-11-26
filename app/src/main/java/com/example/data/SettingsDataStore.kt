@@ -89,7 +89,7 @@ class SettingsDataStore(private val context: Context) {
             elevenLabsKeys = parseElevenLabsKeys(prefs[Keys.ELEVENLABS_KEYS_JSON]),
             selectedVoiceId = cleanCredential(prefs[Keys.SELECTED_VOICE_ID]).ifBlank { "N2IVS1w4EtoT3dr4eOWO" },
             ttsBaseUrl = cleanCredential(prefs[Keys.TTS_BASE_URL]).ifBlank { "https://api.elevenlabs.io" },
-            ttsModelId = cleanCredential(prefs[Keys.TTS_MODEL_ID]).ifBlank { "eleven_multilingual_v2" },
+            ttsModelId = cleanCredential(prefs[Keys.TTS_MODEL_ID]).ifBlank { "eleven_v4" },
             llmBaseUrl = universalBaseUrl,
             llmApiKey = universalApiKey,
             selectedModelId = universalModel,
@@ -230,7 +230,7 @@ class SettingsDataStore(private val context: Context) {
         selectedModelId: String,
         detectedChatBaseUrl: String = "",
         ttsBaseUrl: String = "https://api.elevenlabs.io",
-        ttsModelId: String = "eleven_multilingual_v2",
+        ttsModelId: String = "eleven_v4",
         selectedVoiceId: String? = null,
         aiHordeKey: String = "0000000000",
         narrationSpeed: Float? = null,
@@ -241,7 +241,7 @@ class SettingsDataStore(private val context: Context) {
         val cleanModel = cleanCredential(selectedModelId)
         val cleanDetected = cleanCredential(detectedChatBaseUrl)
         val cleanTtsBase = cleanCredential(ttsBaseUrl).ifBlank { "https://api.elevenlabs.io" }
-        val cleanTtsModel = cleanCredential(ttsModelId).ifBlank { "eleven_multilingual_v2" }
+        val cleanTtsModel = cleanCredential(ttsModelId).ifBlank { "eleven_v4" }
         val cleanHorde = cleanCredential(aiHordeKey).ifBlank { "0000000000" }
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.CUSTOM_BASE_URL] = cleanBase
@@ -357,7 +357,7 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setTtsModelId(ttsModelId: String) {
         context.settingsDataStore.edit { prefs ->
-            prefs[Keys.TTS_MODEL_ID] = cleanCredential(ttsModelId).ifBlank { "eleven_multilingual_v2" }
+            prefs[Keys.TTS_MODEL_ID] = cleanCredential(ttsModelId).ifBlank { "eleven_v4" }
         }
     }
 

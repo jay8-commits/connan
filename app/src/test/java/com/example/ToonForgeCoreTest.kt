@@ -62,9 +62,12 @@ import com.example.model.StudioSettings
 import com.example.model.TimelineScene
 import com.example.model.WordTiming
 import com.example.model.WorldFx
+import com.example.model.ElevenLabsKeyEntry
 import com.example.render.CameraController
 import com.example.render.CharacterSpriteProcessor
+import com.example.render.DeterministicVideoExporter
 import com.example.render.DynamicDiagramRenderer
+import com.example.render.KaraokeCaptionRenderer
 import com.example.render.MetaphorVisualRenderer
 import com.example.render.MotionHtmlDirector
 import com.example.render.MotionPresetEngine
@@ -72,14 +75,20 @@ import com.example.render.ViralCaptionTone
 import com.example.render.PixelCutawayRenderer
 import com.example.render.ProceduralPuppetEngine
 import com.example.render.PuppetSpringSolver
+import com.example.service.RenderBatchItem
+import com.example.service.VideoGenerationService
 import com.example.tts.AudioPcmStitcher
 import com.example.tts.ProceduralSfxCue
 import com.example.tts.SfxTimelineMixer
 import com.example.tts.TagalogPhoneticNormalizer
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -1117,7 +1126,7 @@ class ToonForgeCoreTest {
         // 1. StudioSettings defaults & credential trimming
         val defaults = StudioSettings()
         assertEquals("N2IVS1w4EtoT3dr4eOWO", defaults.selectedVoiceId)
-        assertEquals("eleven_multilingual_v2", defaults.ttsModelId)
+        assertEquals("eleven_v4", defaults.ttsModelId)
         assertEquals("https://api.elevenlabs.io", defaults.ttsBaseUrl)
         assertEquals(1.0f, defaults.narrationSpeed, 0.001f)
 
@@ -1156,7 +1165,7 @@ class ToonForgeCoreTest {
 
         // 3. ElevenLabs 422 model detection, payload model_id, proportional timings & error formatting
         assertEquals("N2IVS1w4EtoT3dr4eOWO", ElevenLabsClient.DEFAULT_VOICE_ID)
-        assertEquals("eleven_multilingual_v2", ElevenLabsClient.DEFAULT_TTS_MODEL_ID)
+        assertEquals("eleven_v4", ElevenLabsClient.DEFAULT_TTS_MODEL_ID)
         assertEquals("eleven_flash_v2_5", ElevenLabsClient.FALLBACK_TTS_MODEL_ID)
 
         assertTrue(
@@ -2478,5 +2487,283 @@ class ToonForgeCoreTest {
         assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT && abs(it.timeSec - 2.45) < 0.001 })
         assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.WHOOSH_CUT && abs(it.timeSec - 3.80) < 0.001 })
         assertTrue(customSfxTimeline.any { it.cue == ProceduralSfxCue.POP_CALLOUT && abs(it.timeSec - 3.80) < 0.001 })
+    }
+
+    @Test
+    fun `contextualSfxGodPromptV2BatchQueue12MbpsAndLoopTailWork`() {
+        // 1. Contextual Procedural SFX: explicit cues + Tagalog keyword auto-triggers
+        assertEquals(ProceduralSfxCue.DOOR_KNOCK_3X, ProceduralSfxCue.fromRaw("door_knock_3x"))
+        assertEquals(ProceduralSfxCue.HEARTBEAT_THUMP, ProceduralSfxCue.fromRaw("heartbeat"))
+        assertEquals(ProceduralSfxCue.TENSION_RISER, ProceduralSfxCue.fromRaw("riser"))
+        assertEquals(ProceduralSfxCue.ELECTRIC_HUM, ProceduralSfxCue.fromRaw("hum"))
+        assertEquals(9, ProceduralSfxCue.entries.size)
+
+        val keywordScenes = listOf(
+            SceneScript(
+                sceneId = 1,
+                tagalogNarration = "May malakas na katok sa pinto habang bumibilis ang tibok ng dibdib.",
+                backgroundPrompt = "dark hallway door",
+                cameraMotion = CameraMotion.ZOOM_IN,
+                actorRole = ActorRole.NARRATOR,
+                actorAction = ActorAction.TALK_BOUNCE,
+                worldFx = WorldFx.NONE
+            ),
+            SceneScript(
+                sceneId = 2,
+                tagalogNarration = "Malaking panganib kung hindi maayos ang wiring ng solar panel.",
+                backgroundPrompt = "rooftop solar inverter",
+                cameraMotion = CameraMotion.PAN_RIGHT,
+                actorRole = ActorRole.NARRATOR,
+                actorAction = ActorAction.POINT_STICK,
+                worldFx = WorldFx.NONE,
+                calloutBanner = "SOLAR INVERTER"
+            )
+        )
+        val keywordTimeline = SfxTimelineMixer.buildSfxTimeline(
+            scenes = keywordScenes,
+            sceneStartMs = listOf(0.0, 3000.0),
+            sceneEndMs = listOf(3000.0, 6000.0),
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY
+        )
+        assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.DOOR_KNOCK_3X })
+        assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.HEARTBEAT_THUMP })
+        assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.TENSION_RISER })
+        assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.ELECTRIC_HUM })
+
+        // 2. Built-in Master Content God Prompt v2
+        val godPrompt = MotionHtmlDirector.buildMasterContentGodPromptV2(
+            durationSeconds = 45,
+            style = AnimationStyle.CROSS_SECTION,
+            customCreativeNotes = "Focus on rooftop solar inverter"
+        )
+        assertTrue(godPrompt.contains("1080x1920"))
+        assertTrue(godPrompt.contains("<script id=\"storyboard-json\""))
+        assertTrue(godPrompt.contains("window.setSceneTimings"))
+        assertTrue(godPrompt.contains("window.seekToTime"))
+        assertTrue(godPrompt.contains("4-slot"))
+        assertTrue(godPrompt.contains("leader-line"))
+        assertTrue(godPrompt.contains("Focus on rooftop solar inverter"))
+
+        // 3. Multi-Video Batch Render Queue serialization & 5-item cap
+        assertEquals(5, VideoGenerationService.MAX_BATCH_QUEUE_SIZE)
+        val batchItems = (1..7).map { idx ->
+            RenderBatchItem(
+                topic = "Solar Explainer #$idx",
+                style = AnimationStyle.CROSS_SECTION,
+                durationSec = 30,
+                voiceIdOverride = "N2IVS1w4EtoT3dr4eOWO",
+                productionMode = ProductionMode.FULL_AI_STORY,
+                importedClipUris = emptyList(),
+                scriptSourceModeOverride = ScriptSourceMode.DIRECT_SCRIPT,
+                directScriptOverride = "<!DOCTYPE html><html><body>$idx</body></html>"
+            )
+        }
+        val serialized = VideoGenerationService.serializeBatchItemsToJson(batchItems)
+        val deserialized = VideoGenerationService.deserializeBatchItemsFromJson(serialized)
+        assertEquals(5, deserialized.size)
+        assertEquals("Solar Explainer #1", deserialized.first().topic)
+        assertEquals("Solar Explainer #5", deserialized.last().topic)
+        assertEquals(ScriptSourceMode.DIRECT_SCRIPT, deserialized.first().scriptSourceModeOverride)
+        assertTrue(deserialized.first().directScriptOverride.contains("<!DOCTYPE html>"))
+
+        // 4. 12 Mbps bitrate & 0.35s (350ms) seamless loop tail padding
+        assertEquals(12_000_000, DeterministicVideoExporter.VIDEO_BITRATE)
+        assertEquals(350.0, AudioPcmStitcher.SEAMLESS_LOOP_TAIL_MS, 0.001)
+        val oneSecPcm = ByteArray(44_100 * 2)
+        val stitchedNoTail = AudioPcmStitcher.stitchScenes(
+            decodedPcmPerScene = listOf(oneSecPcm),
+            localTimingsPerScene = listOf(emptyList()),
+            narrationPerScene = listOf("Isang segundong linya.")
+        )
+        val stitchedWithTail = AudioPcmStitcher.stitchScenes(
+            decodedPcmPerScene = listOf(oneSecPcm),
+            localTimingsPerScene = listOf(emptyList()),
+            narrationPerScene = listOf("Isang segundong linya."),
+            loopTailPaddingMs = AudioPcmStitcher.SEAMLESS_LOOP_TAIL_MS
+        )
+        assertTrue(
+            "Expected >= 350ms loop tail extension (noTail=${stitchedNoTail.totalDurationMs}, withTail=${stitchedWithTail.totalDurationMs})",
+            stitchedWithTail.totalDurationMs - stitchedNoTail.totalDurationMs >= 349.0
+        )
+    }
+
+    @Test
+    fun `elevenV4ModelDefaultsDialogueFallbackAndAudioTagCaptionStrippingWork`() {
+        // 1. Default model ID & supported presets
+        assertEquals("eleven_v4", ElevenLabsClient.DEFAULT_TTS_MODEL_ID)
+        assertEquals("eleven_v4", StudioSettings().effectiveTtsModelId)
+        assertEquals(
+            listOf("eleven_v4", "eleven_v4_turbo", "eleven_multilingual_v2"),
+            ElevenLabsClient.SUPPORTED_TTS_MODEL_PRESETS.map { it.id }
+        )
+
+        // 2. Strict eleven_v4 /with-timestamps payload (ONLY text, model_id, voice_settings; NO speed/language_code)
+        val v4Payload = ElevenLabsClient.buildTtsRequestPayload(
+            normalizedText = "[whispers] Huwag kang maingay.",
+            normPrev = "Nakaraan",
+            normNext = "Susunod",
+            narrationSpeed = 1.15f,
+            modelId = "eleven_v4"
+        )
+        assertEquals("[whispers] Huwag kang maingay.", v4Payload.getString("text"))
+        assertEquals("eleven_v4", v4Payload.getString("model_id"))
+        assertFalse(v4Payload.has("language_code"))
+        assertFalse(v4Payload.has("previous_text"))
+        assertFalse(v4Payload.has("next_text"))
+        val v4Settings = v4Payload.getJSONObject("voice_settings")
+        assertEquals(0.45, v4Settings.getDouble("stability"), 0.001)
+        assertEquals(0.78, v4Settings.getDouble("similarity_boost"), 0.001)
+        assertEquals(0.35, v4Settings.getDouble("style"), 0.001)
+        assertTrue(v4Settings.getBoolean("use_speaker_boost"))
+        assertFalse(v4Settings.has("speed"))
+
+        // Legacy model keeps speed
+        val v2Payload = ElevenLabsClient.buildTtsRequestPayload(
+            normalizedText = "Normal na boses.",
+            normPrev = null,
+            normNext = null,
+            narrationSpeed = 1.10f,
+            modelId = "eleven_multilingual_v2"
+        )
+        assertEquals(1.10, v2Payload.getJSONObject("voice_settings").getDouble("speed"), 0.001)
+
+        // 3. /v1/text-to-dialogue payload builder
+        val dialoguePayload = ElevenLabsClient.buildTextToDialoguePayload(
+            normalizedText = "[tense] Delikado ito!",
+            voiceId = "voice123",
+            modelId = "eleven_v4"
+        )
+        assertEquals("eleven_v4", dialoguePayload.getString("model_id"))
+        val inputs = dialoguePayload.getJSONArray("inputs")
+        assertEquals(1, inputs.length())
+        assertEquals("[tense] Delikado ito!", inputs.getJSONObject(0).getString("text"))
+        assertEquals("voice123", inputs.getJSONObject(0).getString("voice_id"))
+        assertEquals(0.45, dialoguePayload.getJSONObject("settings").getDouble("stability"), 0.001)
+
+        // 4. End-to-end synthesizeScene HTTP fallback: /with-timestamps 400 -> /v1/text-to-dialogue 200
+        val capturedCalls = mutableListOf<Pair<String, String>>()
+        val mockHttpClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val reqBody = req.body?.let { body ->
+                    val buf = Buffer()
+                    body.writeTo(buf)
+                    buf.readUtf8()
+                }.orEmpty()
+                capturedCalls.add(req.url.encodedPath to reqBody)
+                when {
+                    req.url.encodedPath.endsWith("/v1/user/subscription") -> {
+                        Response.Builder()
+                            .request(req)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body("""{"character_count":0,"character_limit":10000,"tier":"creator"}""".toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                    req.url.encodedPath.endsWith("/with-timestamps") -> {
+                        Response.Builder()
+                            .request(req)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(400)
+                            .message("Bad Request")
+                            .body("""{"detail":"timestamps unsupported for v4"}""".toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                    req.url.encodedPath.endsWith("/v1/text-to-dialogue") -> {
+                        Response.Builder()
+                            .request(req)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body(byteArrayOf(0x49, 0x44, 0x33, 0x03).toResponseBody("audio/mpeg".toMediaType()))
+                            .build()
+                    }
+                    else -> {
+                        Response.Builder()
+                            .request(req)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(404)
+                            .message("Not Found")
+                            .body("{}".toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                }
+            }
+            .build()
+
+        val client = ElevenLabsClient(
+            context = null,
+            httpClient = mockHttpClient,
+            audioDecoder = { _, _, _ -> ByteArray(44_100 * 2 * 2) } // 2 seconds PCM
+        )
+        val result = runBlocking {
+            client.synthesizeScene(
+                rawTagalogNarration = "[whispers] Huwag kang maingay [tense] baka marinig tayo.",
+                voiceId = "voice123",
+                keyPool = listOf(ElevenLabsKeyEntry(key = "xi-test-key")),
+                tempCacheDir = File("."),
+                ttsModelId = "eleven_v4",
+                onKeyStatusUpdate = {}
+            )
+        }
+        val tsCall = capturedCalls.first { it.first.endsWith("/with-timestamps") }
+        val tsBodyJson = JSONObject(tsCall.second)
+        assertTrue(tsBodyJson.getString("text").contains("[whispers]"))
+        assertTrue(tsBodyJson.getString("text").contains("[tense]"))
+        assertFalse(tsBodyJson.getJSONObject("voice_settings").has("speed"))
+        assertFalse(tsBodyJson.has("language_code"))
+
+        val dialogueCall = capturedCalls.first { it.first.endsWith("/v1/text-to-dialogue") }
+        val dialogueBodyJson = JSONObject(dialogueCall.second)
+        assertEquals("eleven_v4", dialogueBodyJson.getString("model_id"))
+        assertTrue(
+            dialogueBodyJson.getJSONArray("inputs").getJSONObject(0).getString("text").contains("[whispers]")
+        )
+        assertEquals(
+            listOf("Huwag", "kang", "maingay", "baka", "marinig", "tayo."),
+            result.localWordTimings.map { it.word }
+        )
+
+        // 5. KaraokeCaptionRenderer + alignment mapping strip [whispers] / [tense] / [excited]
+        assertEquals(
+            "Grabe talaga ang pagtitipid!",
+            KaraokeCaptionRenderer.stripAudioTags("[whispers] Grabe [excited] talaga ang pagtitipid!")
+        )
+        val cleanTokens = KaraokeCaptionRenderer.extractCleanCaptionTokens("[tense] Delikado ito [whispers] kaibigan!")
+        assertEquals(listOf("Delikado", "ito", "kaibigan!"), cleanTokens)
+
+        val rawTimings = listOf(
+            WordTiming("[whispers]", 0.0, 200.0),
+            WordTiming("Huwag", 200.0, 500.0),
+            WordTiming("[slow", 500.0, 600.0),
+            WordTiming("pause]", 600.0, 700.0),
+            WordTiming("gastos!", 700.0, 1100.0)
+        )
+        val sanitizedTimings = KaraokeCaptionRenderer.sanitizeCaptionWordTimings(rawTimings)
+        assertEquals(listOf("Huwag", "gastos!"), sanitizedTimings.map { it.word })
+        assertEquals(200.0, sanitizedTimings[0].startMs, 0.01)
+        assertEquals(700.0, sanitizedTimings[1].startMs, 0.01)
+
+        val chunks = MotionHtmlDirector.buildViralCaptionChunks(
+            wordTimings = rawTimings,
+            fallbackNarration = "[whispers] Huwag gastos!",
+            sceneStartMs = 0.0,
+            sceneEndMs = 1500.0
+        )
+        val renderedTokens = chunks.flatMap { c -> c.tokens.map { it.text } }
+        assertEquals(listOf("HUWAG", "GASTOS!"), renderedTokens)
+
+        // Alignment characters containing [excited] should be skipped cleanly without shifting spoken word times
+        val alignmentChars = "[excited] Ok".toCharArray().map { it.toString() }
+        val alignmentJson = JSONObject().apply {
+            put("characters", JSONArray(alignmentChars))
+            put("character_start_times_seconds", JSONArray(List(alignmentChars.size) { it * 0.1 }))
+            put("character_end_times_seconds", JSONArray(List(alignmentChars.size) { (it + 1) * 0.1 }))
+        }
+        val mapped = ElevenLabsClient.mapAlignmentToDisplayWords(alignmentJson, listOf("[excited]", "Ok"))
+        assertEquals(1, mapped.size)
+        assertEquals("Ok", mapped[0].word)
+        assertEquals(1000.0, mapped[0].startMs, 1.0)
     }
 }
