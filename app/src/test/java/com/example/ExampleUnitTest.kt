@@ -1,16 +1,25 @@
 package com.example
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
-/**
- * Example local unit test, which will execute on the development machine (host).
- *
- * See [testing documentation](http://d.android.com/tools/testing).
- */
 class ExampleUnitTest {
-  @Test
-  fun addition_isCorrect() {
-    assertEquals(4, 2 + 2)
-  }
+    @Test
+    fun addition_isCorrect() {
+        assertEquals(4, 2 + 2)
+    }
+
+    @Test
+    fun stringsXmlHasAppName() {
+        val candidates = listOf(
+            File("src/main/res/values/strings.xml"),
+            File("app/src/main/res/values/strings.xml")
+        )
+        val stringsFile = candidates.firstOrNull { it.exists() }
+        requireNotNull(stringsFile) { "strings.xml not found" }
+        val xml = stringsFile.readText()
+        assertTrue(xml.contains("<string name=\"app_name\">ToonForge Tagalog</string>"))
+    }
 }

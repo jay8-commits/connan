@@ -52,10 +52,10 @@ jobs:
           fi
 
       - name: Run JVM unit tests
-        run: gradle :app:testDebugUnitTest --no-daemon
+        run: gradle :app:testDebugUnitTest --no-daemon --no-configuration-cache --max-workers=2
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
@@ -74,7 +74,7 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-            gradle :app:assembleRelease --no-daemon
+            gradle :app:assembleRelease --no-daemon --no-configuration-cache --max-workers=2
             echo "built=true" >> "$GITHUB_OUTPUT"
           else
             echo "Release signing secrets not configured; skipping assembleRelease."
