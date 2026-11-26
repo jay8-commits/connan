@@ -13,9 +13,13 @@ On-device **1080x1920 @ 30fps** Tagalog animated storytelling studio built with 
 
 ## Building Locally (Android Studio / CLI)
 
-1. Restore the debug signing keystore once after cloning:
+1. Ensure a `debug.keystore` exists once after cloning (if `debug.keystore.base64` is absent, generate a standard debug keystore):
    ```bash
-   base64 -d debug.keystore.base64 > debug.keystore
+   if [ -f debug.keystore.base64 ]; then
+     base64 -d debug.keystore.base64 > debug.keystore
+   else
+     keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+   fi
    ```
 2. Open the project in **Android Studio** (uses Gradle `9.3.1` from `gradle/wrapper/gradle-wrapper.properties`), or run via CLI with Gradle installed:
    ```bash
