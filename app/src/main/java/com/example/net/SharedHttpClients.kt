@@ -4,6 +4,7 @@ import okhttp3.Dispatcher
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.net.InetAddress
 import java.net.URLEncoder
 import java.net.UnknownHostException
@@ -19,8 +20,10 @@ import java.util.concurrent.TimeUnit
  */
 class PublicDohFallbackDns(
     private val systemLookup: (String) -> List<InetAddress> = { Dns.SYSTEM.lookup(it) },
-    private val dohClient: OkHttpClient = createBootstrapDohClient()
+    dohClient: OkHttpClient? = null
 ) : Dns {
+
+    private val effectiveDohClient: OkHttpClient by lazy { dohClient ?: createBootstrapDohClient() }
 
     private data class CachedRecord(
         val addresses: List<InetAddress>,
@@ -69,7 +72,7 @@ class PublicDohFallbackDns(
                     .header("Accept", "application/dns-json")
                     .build()
 
-                dohClient.newCall(req).execute().use { resp ->
+                effectiveDohClient.newCall(req).execute().use { resp ->
                     val body = resp.body?.string().orEmpty()
                     if (!resp.isSuccessful) {
                         dohErrors.add("$endpoint -> HTTP ${resp.code}")
@@ -184,29 +187,27 @@ class PublicDohFallbackDns(
             return bytes
         }
 
-        private val ANSWER_ARRAY_REGEX = Regex("\"Answer\"\\s*:\\s*\\[(.*?)]", setOf(RegexOption.DOT_MATCHES_ALL))
-        private val OBJECT_REGEX = Regex("\\{([^{}]*)}")
-        private val TYPE_FIELD_REGEX = Regex("\"type\"\\s*:\\s*(\\d+)")
-        private val TTL_FIELD_REGEX = Regex("\"TTL\"\\s*:\\s*(\\d+)", RegexOption.IGNORE_CASE)
-        private val DATA_FIELD_REGEX = Regex("\"data\"\\s*:\\s*\"([^\"]+)\"")
-
         fun parseDohIpv4Response(hostname: String, jsonBody: String): DohParseResult {
             if (jsonBody.isBlank()) return DohParseResult(emptyList(), MIN_CACHE_TTL_SEC)
-            val answerBlock = ANSWER_ARRAY_REGEX.find(jsonBody)?.groupValues?.getOrNull(1)
+            val root = try {
+                JSONObject(jsonBody)
+            } catch (_: Exception) {
+                return DohParseResult(emptyList(), MIN_CACHE_TTL_SEC)
+            }
+            val answerArray = root.optJSONArray("Answer") ?: root.optJSONArray("answer")
                 ?: return DohParseResult(emptyList(), MIN_CACHE_TTL_SEC)
 
             val addresses = mutableListOf<InetAddress>()
             var minTtl = MAX_CACHE_TTL_SEC
-            for (objMatch in OBJECT_REGEX.findAll(answerBlock)) {
-                val obj = objMatch.groupValues[1]
-                val type = TYPE_FIELD_REGEX.find(obj)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: -1
-                if (type != DNS_RECORD_TYPE_A) continue
-                val data = DATA_FIELD_REGEX.find(obj)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            for (i in 0 until answerArray.length()) {
+                val entry = answerArray.optJSONObject(i) ?: continue
+                if (entry.optInt("type", -1) != DNS_RECORD_TYPE_A) continue
+                val data = entry.optString("data", "").trim()
                 val ipv4Bytes = parseIpv4Literal(data) ?: continue
                 addresses.add(InetAddress.getByAddress(hostname, ipv4Bytes))
-                val ttl = TTL_FIELD_REGEX.find(obj)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: MIN_CACHE_TTL_SEC
-                if (ttl > 0L && ttl < minTtl) {
-                    minTtl = ttl
+                val rawTtl = if (entry.has("TTL")) entry.optLong("TTL", MIN_CACHE_TTL_SEC) else entry.optLong("ttl", MIN_CACHE_TTL_SEC)
+                if (rawTtl > 0L && rawTtl < minTtl) {
+                    minTtl = rawTtl
                 }
             }
             return DohParseResult(
@@ -218,7 +219,7 @@ class PublicDohFallbackDns(
 }
 
 object SharedHttpClients {
-    val dns: PublicDohFallbackDns = PublicDohFallbackDns()
+    val dns: PublicDohFallbackDns by lazy { PublicDohFallbackDns() }
 
     val baseClient: OkHttpClient by lazy {
         OkHttpClient.Builder()

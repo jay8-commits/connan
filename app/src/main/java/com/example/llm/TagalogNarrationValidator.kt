@@ -2,7 +2,6 @@ package com.example.llm
 
 object TagalogNarrationValidator {
 
-    private val STAGE_BRACKETS_REGEX = Regex("\\[[^\\]]{1,40}\\]|\\([^)]{1,30}\\)")
     private val SPEAKER_PREFIX_REGEX = Regex("^(?:narrator|speaker|voiceover|tagapagsalaysay|scene\\s*\\d+)\\s*:\\s*", RegexOption.IGNORE_CASE)
 
     private val NON_LATIN_GARBAGE_REGEX = Regex("[\\u0400-\\u04FF\\u4E00-\\u9FFF\\u3040-\\u30FF\\uAC00-\\uD7AF\\u0600-\\u06FF\\uFFFD]")
@@ -44,8 +43,28 @@ object TagalogNarrationValidator {
     fun cleanForTts(raw: String): String {
         var s = raw.trim()
         s = SPEAKER_PREFIX_REGEX.replace(s, "")
-        s = STAGE_BRACKETS_REGEX.replace(s, " ")
+        s = stripStageBrackets(s, '[', ']', maxSpan = 40)
+        s = stripStageBrackets(s, '(', ')', maxSpan = 30)
         return s.replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun stripStageBrackets(input: String, open: Char, close: Char, maxSpan: Int): String {
+        if (!input.contains(open)) return input
+        val sb = StringBuilder(input.length)
+        var i = 0
+        while (i < input.length) {
+            if (input[i] == open) {
+                val end = input.indexOf(close, i + 1)
+                if (end > i + 1 && (end - i - 1) <= maxSpan) {
+                    sb.append(' ')
+                    i = end + 1
+                    continue
+                }
+            }
+            sb.append(input[i])
+            i++
+        }
+        return sb.toString()
     }
 
     fun isValidTagalogNarration(raw: String): Boolean {

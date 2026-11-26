@@ -58,8 +58,16 @@ object DirectStoryboardParser {
         EnvironmentTheme.BRIGHT_MORNING_KITCHEN
     )
 
-    private val JSON_KEY_INDICATOR = Regex("\"(?:scenes|storyboard|scene_id|tagalog_narration|visual_description|camera_motion|character_pose|shot_framing)\"\\s*:")
-    private val GENERIC_JSON_PAIR = Regex("\"[^\"]+\"\\s*:")
+    private val KNOWN_JSON_KEYS = listOf(
+        "\"scenes\"",
+        "\"storyboard\"",
+        "\"scene_id\"",
+        "\"tagalog_narration\"",
+        "\"visual_description\"",
+        "\"camera_motion\"",
+        "\"character_pose\"",
+        "\"shot_framing\""
+    )
     private val SENTENCE_SPLIT_REGEX = Regex("(?<=[.!?])\\s+")
     private val CLAUSE_SPLIT_REGEX = Regex("(?<=[,;:])\\s+")
     private val TAGALOG_CLAUSE_CONJUNCTION = Regex("^(?:pero|kaya|dahil|kapag|habang|kasi|tapos|ngunit|subalit|para|upang)$", RegexOption.IGNORE_CASE)
@@ -131,9 +139,38 @@ object DirectStoryboardParser {
         for (space in candidateSpaces) {
             val s = space.trim()
             if (s.startsWith("{") && (s.contains(":") || s.contains("\""))) return true
-            if (s.startsWith("[") && (s.contains("{") || GENERIC_JSON_PAIR.containsMatchIn(s))) return true
+            if (s.startsWith("[") && (s.contains("{") || hasJsonKeyColonPair(s))) return true
         }
-        return JSON_KEY_INDICATOR.containsMatchIn(trimmed)
+        return KNOWN_JSON_KEYS.any { key -> hasKeyFollowedByColon(trimmed, key) }
+    }
+
+    private fun hasKeyFollowedByColon(text: String, quotedKey: String): Boolean {
+        var idx = text.indexOf(quotedKey)
+        while (idx >= 0) {
+            var pos = idx + quotedKey.length
+            while (pos < text.length && text[pos].isWhitespace()) pos++
+            if (pos < text.length && text[pos] == ':') return true
+            idx = text.indexOf(quotedKey, idx + quotedKey.length)
+        }
+        return false
+    }
+
+    private fun hasJsonKeyColonPair(text: String): Boolean {
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '"') {
+                val close = text.indexOf('"', i + 1)
+                if (close > i + 1) {
+                    var pos = close + 1
+                    while (pos < text.length && text[pos].isWhitespace()) pos++
+                    if (pos < text.length && text[pos] == ':') return true
+                }
+                i = if (close > i) close + 1 else i + 1
+            } else {
+                i++
+            }
+        }
+        return false
     }
 
     fun parse(
@@ -395,8 +432,7 @@ object DirectStoryboardParser {
 
     fun deriveTopicTitle(rawInput: String): String {
         val cleaned = if (looksLikeJsonInput(rawInput)) {
-            val m = Regex("\"tagalog_narration\"\\s*:\\s*\"([^\"]{4,120})\"").find(rawInput)
-            m?.groupValues?.getOrNull(1).orEmpty()
+            extractFirstJsonStringValue(rawInput, "tagalog_narration").orEmpty()
         } else {
             rawInput.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
         }
@@ -411,12 +447,57 @@ object DirectStoryboardParser {
         val trimmed = rawInput.trim()
         if (trimmed.isEmpty()) return "Empty"
         if (looksLikeJsonInput(trimmed)) {
-            val count = Regex("\"tagalog_narration\"\\s*:").findAll(trimmed).count()
+            val count = countKeyOccurrences(trimmed, "\"tagalog_narration\"")
             return if (count > 0) "JSON • $count scene(s)" else "JSON Storyboard"
         }
         val chunks = splitIntoBalancedScenes(trimmed)
         val words = countWords(trimmed)
         return "Tagalog • ${chunks.size} scene(s) • $words words"
+    }
+
+    private fun extractFirstJsonStringValue(raw: String, keyName: String): String? {
+        val quotedKey = "\"$keyName\""
+        var idx = raw.indexOf(quotedKey)
+        while (idx >= 0) {
+            var pos = idx + quotedKey.length
+            while (pos < raw.length && raw[pos].isWhitespace()) pos++
+            if (pos < raw.length && raw[pos] == ':') {
+                pos++
+                while (pos < raw.length && raw[pos].isWhitespace()) pos++
+                if (pos < raw.length && raw[pos] == '"') {
+                    val start = pos + 1
+                    var end = start
+                    var escaped = false
+                    while (end < raw.length) {
+                        val c = raw[end]
+                        if (escaped) {
+                            escaped = false
+                        } else if (c == '\\') {
+                            escaped = true
+                        } else if (c == '"') {
+                            return raw.substring(start, end)
+                        }
+                        end++
+                    }
+                }
+            }
+            idx = raw.indexOf(quotedKey, idx + quotedKey.length)
+        }
+        return null
+    }
+
+    private fun countKeyOccurrences(raw: String, quotedKey: String): Int {
+        var count = 0
+        var idx = raw.indexOf(quotedKey)
+        while (idx >= 0) {
+            var pos = idx + quotedKey.length
+            while (pos < raw.length && raw[pos].isWhitespace()) pos++
+            if (pos < raw.length && raw[pos] == ':') {
+                count++
+            }
+            idx = raw.indexOf(quotedKey, idx + quotedKey.length)
+        }
+        return count
     }
 
     private fun buildStyleVisualDescription(

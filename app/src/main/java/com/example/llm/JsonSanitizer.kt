@@ -59,8 +59,34 @@ object JsonSanitizer {
         "world_fx"
     )
 
-    private val SCENE_KEY_REGEX = Regex("\"(?:tagalog_narration|scene_id)\"\\s*:")
-    private val ANY_JSON_KEY_REGEX = Regex("\"[^\"]+\"\\s*:")
+    private fun containsKeyFollowedByColon(text: String, quotedKey: String): Boolean {
+        var idx = text.indexOf(quotedKey)
+        while (idx >= 0) {
+            var pos = idx + quotedKey.length
+            while (pos < text.length && text[pos].isWhitespace()) pos++
+            if (pos < text.length && text[pos] == ':') return true
+            idx = text.indexOf(quotedKey, idx + quotedKey.length)
+        }
+        return false
+    }
+
+    private fun containsAnyJsonKeyColon(text: String): Boolean {
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '"') {
+                val close = text.indexOf('"', i + 1)
+                if (close > i + 1) {
+                    var pos = close + 1
+                    while (pos < text.length && text[pos].isWhitespace()) pos++
+                    if (pos < text.length && text[pos] == ':') return true
+                }
+                i = if (close > i) close + 1 else i + 1
+            } else {
+                i++
+            }
+        }
+        return false
+    }
 
     private data class ArrayCandidate(
         val startIndex: Int,
@@ -241,7 +267,8 @@ object JsonSanitizer {
      */
     private fun isSceneObjectArrayText(slice: String): Boolean {
         if (!isObjectArrayText(slice)) return false
-        return SCENE_KEY_REGEX.containsMatchIn(slice)
+        return containsKeyFollowedByColon(slice, "\"tagalog_narration\"") ||
+            containsKeyFollowedByColon(slice, "\"scene_id\"")
     }
 
     private fun isObjectArrayText(slice: String): Boolean {
@@ -249,7 +276,7 @@ object JsonSanitizer {
         if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return false
         val firstInner = nextNonWhitespaceChar(trimmed, 1) ?: return false
         if (firstInner != '{') return false
-        return ANY_JSON_KEY_REGEX.containsMatchIn(trimmed)
+        return containsAnyJsonKeyColon(trimmed)
     }
 
     private fun nextNonWhitespaceChar(text: String, startIndex: Int): Char? {
@@ -321,8 +348,15 @@ object JsonSanitizer {
     }
 
     private fun stripTrailingCommasBeforeArrayEnd(jsonArrayText: String): String {
-        // Handle e.g. `[{"scene_id":1}, ]` -> `[{"scene_id":1}]`
-        return jsonArrayText.replace(Regex(",\\s*\\]$"), "]")
+        val trimmed = jsonArrayText.trimEnd()
+        if (!trimmed.endsWith("]")) return jsonArrayText
+        var pos = trimmed.length - 2
+        while (pos >= 0 && trimmed[pos].isWhitespace()) pos--
+        return if (pos >= 0 && trimmed[pos] == ',') {
+            trimmed.substring(0, pos) + "]"
+        } else {
+            jsonArrayText
+        }
     }
 
     fun parseAndValidateScenes(rawOutput: String): List<SceneScript> {
