@@ -110,6 +110,7 @@ import com.example.model.ProductionMode
 import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
+import com.example.model.VideoAspectRatio
 import com.example.model.WorldFx
 import android.annotation.SuppressLint
 import android.graphics.Color as AndroidColor
@@ -123,6 +124,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.render.MotionHtmlDirector
 import com.example.render.SceneCompositor
+import com.example.render.WebViewFrameRenderer
 import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
 import com.example.ui.theme.ForgeCyan
@@ -151,6 +153,7 @@ fun StudioScreen(
     val importedClips by viewModel.importedClips.collectAsStateWithLifecycle()
     val previewCustomSprites by viewModel.previewCustomSprites.collectAsStateWithLifecycle()
     val selectedDurationSec by viewModel.selectedDurationSec.collectAsStateWithLifecycle()
+    val aspectRatio by viewModel.aspectRatio.collectAsStateWithLifecycle()
     val previewPlaying by viewModel.previewPlaying.collectAsStateWithLifecycle()
     val previewTimeMs by viewModel.previewTimeMs.collectAsStateWithLifecycle()
     val demoRole by viewModel.demoActorRole.collectAsStateWithLifecycle()
@@ -173,6 +176,9 @@ fun StudioScreen(
     }
     var voiceInput by remember(settings.selectedVoiceId) {
         mutableStateOf(settings.selectedVoiceId)
+    }
+    var voiceCatInput by remember(settings.secondaryVoiceId) {
+        mutableStateOf(settings.secondaryVoiceId)
     }
 
     LaunchedEffect(activeTemplate) {
@@ -204,7 +210,7 @@ fun StudioScreen(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { _ ->
             // Start generation whether granted or denied (service still runs foreground)
-            viewModel.startGeneration(voiceIdDraft = voiceInput)
+            viewModel.startGeneration(voiceIdDraft = voiceInput, voiceIdCatDraft = voiceCatInput)
         }
     )
 
@@ -218,7 +224,7 @@ fun StudioScreen(
                 return
             }
         }
-        viewModel.startGeneration(voiceIdDraft = voiceInput)
+        viewModel.startGeneration(voiceIdDraft = voiceInput, voiceIdCatDraft = voiceCatInput)
     }
 
     Column(
@@ -235,7 +241,7 @@ fun StudioScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Studio Header Banner
-            StudioTopHeader()
+            StudioTopHeader(aspectRatio = aspectRatio)
 
             // 3-Mode Script Source Selector (Direct Script / Custom LLM API / AI Horde)
             ScriptSourceSelectorCard(
@@ -685,7 +691,7 @@ fun StudioScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Target Duration & Voice",
+                        text = "Target Duration, Format & Dual Voices",
                         style = MaterialTheme.typography.titleSmall
                     )
                     Row(
@@ -705,6 +711,7 @@ fun StudioScreen(
                                 },
                                 modifier = Modifier
                                     .weight(1f)
+                                    .heightIn(min = 48.dp)
                                     .testTag("duration_${sec}s"),
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = ForgeCoral.copy(alpha = 0.22f),
@@ -714,7 +721,62 @@ fun StudioScreen(
                         }
                     }
 
-                    // ElevenLabs Voice Presets + Editable Voice ID
+                    // Aspect Ratio Switcher (9:16 Vertical vs 16:9 Widescreen)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Video Aspect Ratio",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            VideoAspectRatio.entries.forEach { ratioOption ->
+                                val selected = aspectRatio == ratioOption
+                                val accent = if (ratioOption == VideoAspectRatio.PORTRAIT_9_16) ForgeCoral else ForgeCyan
+                                val tag = if (ratioOption == VideoAspectRatio.PORTRAIT_9_16) "aspect_ratio_9_16" else "aspect_ratio_16_9"
+                                Surface(
+                                    onClick = { viewModel.selectAspectRatio(ratioOption) },
+                                    color = if (selected) accent.copy(alpha = 0.16f) else StudioSurfaceElevated,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(
+                                        width = if (selected) 1.5.dp else 1.dp,
+                                        color = if (selected) accent else StudioOutline
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag(tag)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = ratioOption.shortLabel,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (selected) accent else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (ratioOption == VideoAspectRatio.PORTRAIT_9_16) {
+                                                "1080x1920 • Shorts"
+                                            } else {
+                                                "1920x1080 • YouTube"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ElevenLabs Voice Presets + Editable Dual Voice IDs
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -745,14 +807,32 @@ fun StudioScreen(
                             voiceInput = clean
                             viewModel.selectVoiceId(clean)
                         },
-                        label = { Text("ElevenLabs Voice ID") },
+                        label = { Text("Primary Voice ID (Matalinong Daga — Narrator)") },
                         singleLine = true,
                         leadingIcon = {
-                            Icon(Icons.Rounded.GraphicEq, contentDescription = "Voice ID")
+                            Icon(Icons.Rounded.GraphicEq, contentDescription = "Primary Voice ID")
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("voice_id_input"),
+                        colors = studioTextFieldColors()
+                    )
+                    OutlinedTextField(
+                        value = voiceCatInput,
+                        onValueChange = { raw ->
+                            val clean = raw.replace("\r", "").replace("\n", "").trim()
+                            voiceCatInput = clean
+                            viewModel.setSecondaryVoiceId(clean)
+                        },
+                        label = { Text("Secondary Voice ID (Si Pusa — Optional)") },
+                        placeholder = { Text("Used when scene speaker == \"cat\"") },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Rounded.GraphicEq, contentDescription = "Secondary Voice ID")
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("voice_id_cat_input"),
                         colors = studioTextFieldColors()
                     )
                 }
@@ -820,7 +900,7 @@ fun StudioScreen(
                     }
 
                     OutlinedButton(
-                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput) },
+                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput, voiceIdCatDraft = voiceCatInput) },
                         enabled = stagedRenderQueue.size < maxQueue,
                         border = BorderStroke(1.5.dp, ForgeCyan.copy(alpha = 0.8f)),
                         shape = RoundedCornerShape(16.dp),
@@ -878,7 +958,7 @@ fun StudioScreen(
                     }
 
                     OutlinedButton(
-                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput) },
+                        onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput, voiceIdCatDraft = voiceCatInput) },
                         enabled = activePlusQueued < maxQueue,
                         border = BorderStroke(1.5.dp, ForgeCyan.copy(alpha = 0.8f)),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
@@ -921,11 +1001,12 @@ fun StudioScreen(
                 )
             }
 
-            // 6. INTERACTIVE LIVE 9:16 CANVAS PREVIEW
+            // 6. INTERACTIVE LIVE CANVAS PREVIEW
             LiveCanvasPreviewCard(
                 viewModel = viewModel,
                 productionMode = productionMode,
                 selectedStyle = selectedStyle,
+                aspectRatio = aspectRatio,
                 scriptSourceMode = scriptSourceMode,
                 directScriptText = directScriptText,
                 customSprites = previewCustomSprites,
@@ -946,7 +1027,7 @@ fun StudioScreen(
 }
 
 @Composable
-private fun StudioTopHeader() {
+private fun StudioTopHeader(aspectRatio: VideoAspectRatio) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -973,7 +1054,7 @@ private fun StudioTopHeader() {
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "1080x1920 @ 30fps On-Device Puppet & EGL14 Studio",
+                    text = "${aspectRatio.width}x${aspectRatio.height} @ 30fps On-Device Motion & WebView Studio",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFB5BDD6)
                 )
@@ -995,7 +1076,7 @@ private fun StudioTopHeader() {
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "9:16",
+                        text = aspectRatio.shortLabel,
                         style = MaterialTheme.typography.labelMedium,
                         color = ForgeAmber
                     )
@@ -1609,6 +1690,7 @@ private fun LiveCanvasPreviewCard(
     viewModel: MainViewModel,
     productionMode: ProductionMode,
     selectedStyle: AnimationStyle,
+    aspectRatio: VideoAspectRatio,
     scriptSourceMode: ScriptSourceMode,
     directScriptText: String,
     customSprites: Map<ActorRole, android.graphics.Bitmap>,
@@ -1628,6 +1710,7 @@ private fun LiveCanvasPreviewCard(
         if (generatedScenes.isNotEmpty()) generatedScenes else viewModel.buildDemoPreviewScenes()
     }
     val totalDurMs = activeScenes.lastOrNull()?.endMs?.coerceAtLeast(1000.0) ?: 4200.0
+    val isWide = aspectRatio == VideoAspectRatio.LANDSCAPE_16_9
 
     Card(
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
@@ -1649,7 +1732,7 @@ private fun LiveCanvasPreviewCard(
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = "Live 9:16 Canvas • ${selectedStyle.displayName}",
+                        text = "Live ${aspectRatio.shortLabel} Canvas • ${selectedStyle.displayName}",
                         style = MaterialTheme.typography.labelSmall,
                         color = selectedStyle.accentColor
                     )
@@ -1670,11 +1753,11 @@ private fun LiveCanvasPreviewCard(
                 }
             }
 
-            // 9:16 Live Preview Viewport (HTML5/SVG Motion Engine for 2D/2.5D presets, Canvas fallback for Clip Auto-HUD)
+            // Live Preview Viewport (9:16 Vertical or 16:9 Widescreen)
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.68f)
-                    .aspectRatio(9f / 16f)
+                    .fillMaxWidth(if (isWide) 1f else 0.68f)
+                    .aspectRatio(if (isWide) 16f / 9f else 9f / 16f)
                     .align(Alignment.CenterHorizontally)
                     .clip(RoundedCornerShape(16.dp))
                     .border(2.dp, selectedStyle.accentColor.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
@@ -1707,17 +1790,19 @@ private fun LiveCanvasPreviewCard(
                             null
                         }
                     }
-                    val previewHtml = remember(customDirectHtml, activeScenes, selectedStyle, totalDurMs) {
+                    val previewHtml = remember(customDirectHtml, activeScenes, selectedStyle, totalDurMs, aspectRatio) {
                         customDirectHtml ?: MotionHtmlDirector.buildHtmlDocument(
                             scenes = activeScenes,
                             style = selectedStyle,
                             totalDurationMs = totalDurMs,
                             includeAiBackdrops = activeScenes.any { it.backdropBitmap != null },
-                            context = previewCtx
+                            context = previewCtx,
+                            aspectRatio = aspectRatio
                         )
                     }
                     MotionWebViewPreview(
                         htmlDocument = previewHtml,
+                        aspectRatioKey = aspectRatio.ratioKey,
                         currentSeconds = previewTimeMs / 1000.0,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -1845,11 +1930,13 @@ private fun LiveCanvasPreviewCard(
 @Composable
 private fun MotionWebViewPreview(
     htmlDocument: String,
+    aspectRatioKey: String,
     currentSeconds: Double,
     modifier: Modifier = Modifier
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var lastLoadedHtml by remember { mutableStateOf("") }
+    var lastAspectRatioKey by remember { mutableStateOf(aspectRatioKey) }
     var pageReady by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
@@ -1890,12 +1977,14 @@ private fun MotionWebViewPreview(
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         pageReady = true
+                        val ratioJs = WebViewFrameRenderer.buildSetAspectRatioScript(aspectRatioKey)
                         val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
-                        view?.evaluateJavascript("if (window.seekToTime) window.seekToTime($secStr);", null)
+                        view?.evaluateJavascript("$ratioJs if (window.seekToTime) window.seekToTime($secStr);", null)
                     }
                 }
                 webViewRef = this
                 lastLoadedHtml = htmlDocument
+                lastAspectRatioKey = aspectRatioKey
                 pageReady = false
                 loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
             }
@@ -1903,11 +1992,16 @@ private fun MotionWebViewPreview(
         update = { wv ->
             if (lastLoadedHtml != htmlDocument) {
                 lastLoadedHtml = htmlDocument
+                lastAspectRatioKey = aspectRatioKey
                 pageReady = false
                 wv.loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
             } else if (pageReady) {
+                val ratioJs = if (lastAspectRatioKey != aspectRatioKey) {
+                    lastAspectRatioKey = aspectRatioKey
+                    WebViewFrameRenderer.buildSetAspectRatioScript(aspectRatioKey) + " "
+                } else ""
                 val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
-                wv.evaluateJavascript("if (window.seekToTime) window.seekToTime($secStr);", null)
+                wv.evaluateJavascript("${ratioJs}if (window.seekToTime) window.seekToTime($secStr);", null)
             }
         }
     )

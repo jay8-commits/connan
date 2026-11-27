@@ -172,13 +172,13 @@ object DirectStoryboardParser {
 <html lang="tl">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=1080,height=1920,initial-scale=1.0,user-scalable=no" />
+<meta id="vp-meta" name="viewport" content="width=1080,height=1920,initial-scale=1.0,user-scalable=no" />
 <style>
   html, body {
     margin: 0;
     padding: 0;
-    width: 1080px;
-    height: 1920px;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
     background: #080B12;
   }
@@ -188,8 +188,8 @@ object DirectStoryboardParser {
     justify-content: center;
   }
   svg {
-    width: 1080px;
-    height: 1920px;
+    width: 100vw;
+    height: 100vh;
     display: block;
   }
 </style>
@@ -203,6 +203,16 @@ $normalizedSvg
     if (rootSvg && typeof rootSvg.pauseAnimations === 'function') {
       try { rootSvg.pauseAnimations(); } catch (e) {}
     }
+    window.setAspectRatio = function(ratio) {
+      var isWide = String(ratio || '').indexOf('16:9') >= 0;
+      var w = isWide ? 1920 : 1080;
+      var h = isWide ? 1080 : 1920;
+      var vp = document.getElementById('vp-meta');
+      if (vp) vp.setAttribute('content', 'width=' + w + ',height=' + h + ',initial-scale=1.0,user-scalable=no');
+      if (rootSvg) {
+        rootSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      }
+    };
     window.seekToTime = function(seconds) {
       var t = Number(seconds) || 0;
       if (rootSvg && typeof rootSvg.setCurrentTime === 'function') {
@@ -457,7 +467,78 @@ $normalizedSvg
                     (it.body.startsWith("[") || it.body.startsWith("{"))
             }
         )
-        return priorityMatches.firstOrNull { it != null }?.body
+        val directTagMatch = priorityMatches.firstOrNull { it != null }?.body
+        if (!directTagMatch.isNullOrBlank()) return directTagMatch
+
+        for (block in blocks) {
+            extractJsArrayVariable(block.body, "STORYBOARD_SCENES")?.let { return it }
+            extractJsArrayVariable(block.body, "storyboardScenes")?.let { return it }
+        }
+        return null
+    }
+
+    private fun extractJsArrayVariable(jsBody: String, varName: String): String? {
+        var searchFrom = 0
+        while (searchFrom < jsBody.length) {
+            val idx = jsBody.indexOf(varName, searchFrom)
+            if (idx < 0) return null
+            val before = jsBody.getOrNull(idx - 1)
+            val after = jsBody.getOrNull(idx + varName.length)
+            val validStart = before == null || (!before.isLetterOrDigit() && before != '_')
+            val validEnd = after == null || (!after.isLetterOrDigit() && after != '_')
+            if (validStart && validEnd) {
+                var p = idx + varName.length
+                while (p < jsBody.length && jsBody[p].isWhitespace()) p++
+                if (p < jsBody.length && jsBody[p] == '=') {
+                    p++
+                    while (p < jsBody.length && jsBody[p].isWhitespace()) p++
+                    if (p < jsBody.length && jsBody[p] == '[') {
+                        val slice = extractBalancedJsonArraySlice(jsBody, p)
+                        if (slice != null) return slice
+                    }
+                }
+            }
+            searchFrom = idx + varName.length
+        }
+        return null
+    }
+
+    private fun extractBalancedJsonArraySlice(text: String, startBracket: Int): String? {
+        var inSingle = false
+        var inDouble = false
+        var inTemplate = false
+        var escaped = false
+        var depth = 0
+        for (i in startBracket until text.length) {
+            val ch = text[i]
+            if (inSingle || inDouble || inTemplate) {
+                if (escaped) {
+                    escaped = false
+                } else if (ch == '\\') {
+                    escaped = true
+                } else if (inSingle && ch == '\'') {
+                    inSingle = false
+                } else if (inDouble && ch == '"') {
+                    inDouble = false
+                } else if (inTemplate && ch == '`') {
+                    inTemplate = false
+                }
+                continue
+            }
+            when (ch) {
+                '\'' -> inSingle = true
+                '"' -> inDouble = true
+                '`' -> inTemplate = true
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) {
+                        return text.substring(startBracket, i + 1)
+                    }
+                }
+            }
+        }
+        return null
     }
 
     private fun parseEmbeddedStoryboardJsonRelaxed(
@@ -559,6 +640,8 @@ $normalizedSvg
                     }
                 }
 
+                val speaker = obj.optString("speaker", "").trim()
+
                 parsedScenes.add(
                     SceneScript(
                         sceneId = sceneId,
@@ -578,7 +661,8 @@ $normalizedSvg
                         hudFromValue = hudFrom,
                         hudToValue = hudTo,
                         hasCharacter = hasChar,
-                        sfxCues = sfxCues
+                        sfxCues = sfxCues,
+                        speaker = speaker
                     )
                 )
             }

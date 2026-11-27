@@ -34,6 +34,7 @@ import com.example.model.ShotFraming
 import com.example.model.StatusPill
 import com.example.model.StudioSettings
 import com.example.model.TimelineScene
+import com.example.model.VideoAspectRatio
 import com.example.model.WordTiming
 import com.example.model.WorldFx
 import com.example.render.CharacterSpriteProcessor
@@ -105,6 +106,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedDurationSec = MutableStateFlow(30)
     val selectedDurationSec: StateFlow<Int> = _selectedDurationSec.asStateFlow()
+
+    private val _aspectRatio = MutableStateFlow(VideoAspectRatio.PORTRAIT_9_16)
+    val aspectRatio: StateFlow<VideoAspectRatio> = _aspectRatio.asStateFlow()
 
     private val _savedVideos = MutableStateFlow<List<SavedVideoItem>>(emptyList())
     val savedVideos: StateFlow<List<SavedVideoItem>> = _savedVideos.asStateFlow()
@@ -298,6 +302,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedDurationSec.value = seconds
     }
 
+    fun selectAspectRatio(ratio: VideoAspectRatio) {
+        _aspectRatio.value = ratio
+    }
+
     fun togglePreviewPlay() {
         _previewPlaying.value = !_previewPlaying.value
     }
@@ -415,6 +423,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectVoiceId(voiceId: String) {
         viewModelScope.launch {
             settingsStore.setSelectedVoiceId(voiceId)
+        }
+    }
+
+    fun setSecondaryVoiceId(voiceId: String) {
+        viewModelScope.launch {
+            settingsStore.setSecondaryVoiceId(voiceId)
         }
     }
 
@@ -638,7 +652,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showMessage("Cleared render queue")
     }
 
-    fun addToRenderQueue(voiceIdDraft: String? = null) {
+    fun addToRenderQueue(
+        voiceIdDraft: String? = null,
+        voiceIdCatDraft: String? = null
+    ) {
         val mode = _productionMode.value
         val clips = _importedClips.value
         if (mode == ProductionMode.CLIP_AUTO_EDITOR && clips.isEmpty()) {
@@ -647,7 +664,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            val prepared = prepareValidatedRenderRequest(voiceIdDraft) ?: return@launch
+            val prepared = prepareValidatedRenderRequest(
+                voiceIdDraft = voiceIdDraft,
+                voiceIdCatDraft = voiceIdCatDraft
+            ) ?: return@launch
             val (item, summaryLabel) = prepared
 
             if (progress.value.isRunning) {
@@ -691,13 +711,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun prepareValidatedRenderRequest(
-        voiceIdDraft: String?
+        voiceIdDraft: String?,
+        voiceIdCatDraft: String? = null
     ): Pair<RenderBatchItem, String>? {
         val mode = _productionMode.value
         val clips = _importedClips.value
         val cleanVoiceDraft = voiceIdDraft?.let { UniversalModelDetector.cleanCredential(it) }.orEmpty()
         if (cleanVoiceDraft.isNotEmpty()) {
             settingsStore.setSelectedVoiceId(cleanVoiceDraft)
+        }
+        val cleanVoiceCatDraft = voiceIdCatDraft?.let { UniversalModelDetector.cleanCredential(it) }
+        if (cleanVoiceCatDraft != null) {
+            settingsStore.setSecondaryVoiceId(cleanVoiceCatDraft)
         }
         val snapshot = settingsStore.getSnapshot()
         val scriptMode = snapshot.effectiveScriptSourceMode
@@ -723,6 +748,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             UniversalModelDetector.cleanCredential(it.key).isNotEmpty()
         }
         val effectiveVoice = cleanVoiceDraft.ifBlank { snapshot.effectiveVoiceId }
+        val effectiveSecondaryVoice = cleanVoiceCatDraft ?: snapshot.effectiveSecondaryVoiceId
+        val selectedRatio = _aspectRatio.value
 
         val missing = buildList {
             if (scriptMode == ScriptSourceMode.CUSTOM_LLM) {
@@ -763,16 +790,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             style = effectiveStyle,
             durationSec = _selectedDurationSec.value,
             voiceIdOverride = effectiveVoice,
+            voiceIdCatOverride = effectiveSecondaryVoice,
+            aspectRatio = selectedRatio,
             productionMode = mode,
             importedClipUris = clips.map { Uri.parse(it.uriString) },
             scriptSourceModeOverride = scriptMode,
             directScriptOverride = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) scriptDraft else ""
         )
-        val summary = when (scriptMode) {
+        val baseSummary = when (scriptMode) {
             ScriptSourceMode.DIRECT_SCRIPT -> DirectStoryboardParser.estimatePreviewSummary(scriptDraft)
             ScriptSourceMode.CUSTOM_LLM -> "Custom LLM • ${_selectedDurationSec.value}s"
             ScriptSourceMode.AI_HORDE -> "AI Horde • ${_selectedDurationSec.value}s"
         }
+        val summary = "$baseSummary • ${selectedRatio.shortLabel}"
         return request to summary
     }
 
@@ -783,7 +813,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             file
         }
 
-    fun startGeneration(voiceIdDraft: String? = null) {
+    fun startGeneration(
+        voiceIdDraft: String? = null,
+        voiceIdCatDraft: String? = null
+    ) {
         val mode = _productionMode.value
         val clips = _importedClips.value
         if (mode == ProductionMode.CLIP_AUTO_EDITOR && clips.isEmpty()) {
@@ -801,7 +834,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _directScriptText.value.isNotBlank() &&
                     batchRequests.size < VideoGenerationService.MAX_BATCH_QUEUE_SIZE
                 ) {
-                    prepareValidatedRenderRequest(voiceIdDraft)?.let { (extraItem, _) ->
+                    prepareValidatedRenderRequest(voiceIdDraft, voiceIdCatDraft)?.let { (extraItem, _) ->
                         batchRequests.add(extraItem)
                     }
                 }
@@ -815,7 +848,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val prepared = prepareValidatedRenderRequest(voiceIdDraft) ?: return@launch
+            val prepared = prepareValidatedRenderRequest(voiceIdDraft, voiceIdCatDraft) ?: return@launch
             val (item, _) = prepared
             val queueFile = writeBatchQueueFile(listOf(item))
             val intent = Intent(appContext, VideoGenerationService::class.java).apply {
@@ -1163,6 +1196,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ttsBaseUrl: String = settings.value.effectiveTtsBaseUrl,
         ttsModelId: String = settings.value.effectiveTtsModelId,
         selectedVoiceId: String = settings.value.effectiveVoiceId,
+        secondaryVoiceId: String = settings.value.effectiveSecondaryVoiceId,
         aiHordeKey: String = settings.value.aiHordeKey,
         narrationSpeed: Float = settings.value.narrationSpeed,
         useAiHorde: Boolean? = null
@@ -1182,6 +1216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ttsBaseUrl = UniversalModelDetector.cleanUrl(ttsBaseUrl),
                 ttsModelId = UniversalModelDetector.cleanCredential(ttsModelId),
                 selectedVoiceId = UniversalModelDetector.cleanCredential(selectedVoiceId),
+                secondaryVoiceId = UniversalModelDetector.cleanCredential(secondaryVoiceId),
                 aiHordeKey = UniversalModelDetector.cleanCredential(aiHordeKey),
                 narrationSpeed = narrationSpeed,
                 useAiHorde = useAiHorde

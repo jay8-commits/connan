@@ -60,6 +60,7 @@ import com.example.model.ShotType
 import com.example.model.StatusPill
 import com.example.model.StudioSettings
 import com.example.model.TimelineScene
+import com.example.model.VideoAspectRatio
 import com.example.model.WordTiming
 import com.example.model.WorldFx
 import com.example.model.ElevenLabsKeyEntry
@@ -75,6 +76,7 @@ import com.example.render.ViralCaptionTone
 import com.example.render.PixelCutawayRenderer
 import com.example.render.ProceduralPuppetEngine
 import com.example.render.PuppetSpringSolver
+import com.example.render.WebViewFrameRenderer
 import com.example.service.RenderBatchItem
 import com.example.service.VideoGenerationService
 import com.example.tts.AudioPcmStitcher
@@ -2765,5 +2767,145 @@ class ToonForgeCoreTest {
         assertEquals(1, mapped.size)
         assertEquals("Ok", mapped[0].word)
         assertEquals(1000.0, mapped[0].startMs, 1.0)
+    }
+
+    @Test
+    fun `dualVoiceRoutingResponsiveCaptionsAndAspectRatioSwitcherWork`() {
+        // 1. DirectStoryboardParser extracts window.STORYBOARD_SCENES = [...] with "speaker"
+        val htmlWithJsStoryboard = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+            <svg id="stage" viewBox="0 0 1080 1920"></svg>
+            <script>
+              window.STORYBOARD_SCENES = [
+                {
+                  "scene_id": 1,
+                  "speaker": "rat",
+                  "tagalog_narration": "Ako si Matalinong Daga at may plano tayo."
+                },
+                {
+                  "scene_id": 2,
+                  "speaker": "cat",
+                  "tagalog_narration": "Sige Daga, ako naman si Pusa at handa na ako!"
+                }
+              ];
+              window.setSceneTimings = function(d) {};
+              window.seekToTime = function(t) {};
+            </script>
+            </body>
+            </html>
+        """.trimIndent()
+        val parseResult = DirectStoryboardParser.parse(
+            rawInput = htmlWithJsStoryboard,
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY
+        )
+        val parsedScenes = parseResult.scenes
+        assertEquals(2, parsedScenes.size)
+        assertEquals("rat", parsedScenes[0].speaker)
+        assertEquals("cat", parsedScenes[1].speaker)
+        assertTrue(parsedScenes[1].tagalogNarration.contains("Pusa"))
+
+        // 2. Dual Voice ID routing logic
+        val ratVoice = "voice_rat_primary"
+        val catVoice = "voice_cat_secondary"
+        assertEquals(catVoice, VideoGenerationService.resolveSceneVoiceId("cat", ratVoice, catVoice))
+        assertEquals(catVoice, VideoGenerationService.resolveSceneVoiceId("CAT", ratVoice, catVoice))
+        assertEquals(ratVoice, VideoGenerationService.resolveSceneVoiceId("rat", ratVoice, catVoice))
+        assertEquals(ratVoice, VideoGenerationService.resolveSceneVoiceId("", ratVoice, catVoice))
+        assertEquals(ratVoice, VideoGenerationService.resolveSceneVoiceId("cat", ratVoice, "   "))
+
+        // 3. Batch item serialization roundtrip preserves voiceIdCatOverride & LANDSCAPE_16_9
+        val batchWithDualAndWide = listOf(
+            RenderBatchItem(
+                topic = "Daga vs Pusa Widescreen",
+                style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+                durationSec = 30,
+                voiceIdOverride = ratVoice,
+                productionMode = ProductionMode.FULL_AI_STORY,
+                importedClipUris = emptyList(),
+                scriptSourceModeOverride = ScriptSourceMode.DIRECT_SCRIPT,
+                directScriptOverride = htmlWithJsStoryboard,
+                voiceIdCatOverride = catVoice,
+                aspectRatio = VideoAspectRatio.LANDSCAPE_16_9
+            )
+        )
+        val encodedBatch = VideoGenerationService.serializeBatchItemsToJson(batchWithDualAndWide)
+        val decodedBatch = VideoGenerationService.deserializeBatchItemsFromJson(encodedBatch)
+        assertEquals(1, decodedBatch.size)
+        assertEquals(ratVoice, decodedBatch[0].voiceIdOverride)
+        assertEquals(catVoice, decodedBatch[0].voiceIdCatOverride)
+        assertEquals(VideoAspectRatio.LANDSCAPE_16_9, decodedBatch[0].aspectRatio)
+        assertEquals(1920, decodedBatch[0].aspectRatio.width)
+        assertEquals(1080, decodedBatch[0].aspectRatio.height)
+
+        // 4. Auto-fit responsive captions stay <= 86% canvas width and <= 2 lines on both 9:16 and 16:9
+        val longTagalogPhrase = listOf(
+            WordTiming("Napakadelikado", 0.0, 400.0),
+            WordTiming("makipagsapalaran", 400.0, 900.0),
+            WordTiming("sa", 900.0, 1100.0),
+            WordTiming("kagubatan!", 1100.0, 1600.0)
+        )
+        val shortPhrase = listOf(
+            WordTiming("Tara", 0.0, 300.0),
+            WordTiming("na!", 300.0, 600.0)
+        )
+
+        val fitPortraitLong = KaraokeCaptionRenderer.fitCaptionLayout(
+            words = longTagalogPhrase,
+            canvasWidthPx = 1080f,
+            canvasHeightPx = 1920f
+        )
+        val fitPortraitShort = KaraokeCaptionRenderer.fitCaptionLayout(
+            words = shortPhrase,
+            canvasWidthPx = 1080f,
+            canvasHeightPx = 1920f
+        )
+        assertTrue(fitPortraitLong.lines.size <= 2)
+        assertTrue(fitPortraitLong.maxLineWidthPx <= 1080f * 0.86f + 0.5f)
+        assertTrue(fitPortraitLong.fontSizePx < fitPortraitShort.fontSizePx)
+
+        val fitLandscapeLong = KaraokeCaptionRenderer.fitCaptionLayout(
+            words = longTagalogPhrase,
+            canvasWidthPx = 1920f,
+            canvasHeightPx = 1080f
+        )
+        assertTrue(fitLandscapeLong.lines.size <= 2)
+        assertTrue(fitLandscapeLong.maxLineWidthPx <= 1920f * 0.86f + 0.5f)
+
+        val megaSingleWord = listOf(WordTiming("Pinakamapanganibangpaglalakbay", 0.0, 1200.0))
+        val fitMegaWord = KaraokeCaptionRenderer.fitCaptionLayout(
+            words = megaSingleWord,
+            canvasWidthPx = 1080f,
+            canvasHeightPx = 1920f
+        )
+        assertTrue(fitMegaWord.lines.size <= 2)
+        assertTrue(fitMegaWord.maxLineWidthPx <= 1080f * 0.86f + 0.5f)
+        assertTrue(fitMegaWord.fontSizePx < fitPortraitShort.fontSizePx)
+
+        // 5. WebView aspect ratio script + MotionHtmlDirector 16:9 HTML + raw <svg> wrapper
+        val aspectJs = WebViewFrameRenderer.buildSetAspectRatioScript("16:9")
+        assertTrue(aspectJs.contains("window.setAspectRatio('16:9')"))
+
+        val timelineScenes = parsedScenes.mapIndexed { idx, scene ->
+            TimelineScene(
+                scene = scene,
+                startMs = idx * 4000.0,
+                endMs = (idx + 1) * 4000.0,
+                wordTimings = emptyList()
+            )
+        }
+        val wideHtml = MotionHtmlDirector.buildHtmlDocument(
+            scenes = timelineScenes,
+            style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+            totalDurationMs = 8000.0,
+            aspectRatio = VideoAspectRatio.LANDSCAPE_16_9
+        )
+        assertTrue(wideHtml.contains("viewBox=\"0 0 1920 1080\""))
+        assertTrue(wideHtml.contains("window.setAspectRatio"))
+        assertTrue(wideHtml.contains("STAGE_W * 0.86"))
+
+        val wrappedSvg = DirectStoryboardParser.buildCustomHtmlDocumentIfNeeded("<svg viewBox=\"0 0 1080 1920\"></svg>")
+        assertTrue(wrappedSvg.contains("window.setAspectRatio"))
     }
 }

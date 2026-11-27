@@ -162,6 +162,38 @@ enum class ScriptSourceMode(
     }
 }
 
+enum class VideoAspectRatio(
+    val ratioKey: String,
+    val width: Int,
+    val height: Int,
+    val shortLabel: String,
+    val label: String
+) {
+    PORTRAIT_9_16(
+        ratioKey = "9:16",
+        width = 1080,
+        height = 1920,
+        shortLabel = "9:16 Vertical",
+        label = "9:16 (1080x1920 — Shorts / Reels)"
+    ),
+    LANDSCAPE_16_9(
+        ratioKey = "16:9",
+        width = 1920,
+        height = 1080,
+        shortLabel = "16:9 Widescreen",
+        label = "16:9 (1920x1080 — YouTube Widescreen)"
+    );
+
+    companion object {
+        fun fromRaw(raw: String?): VideoAspectRatio {
+            val clean = raw?.trim()?.uppercase() ?: return PORTRAIT_9_16
+            return entries.firstOrNull {
+                it.name == clean || it.ratioKey.equals(clean, ignoreCase = true)
+            } ?: PORTRAIT_9_16
+        }
+    }
+}
+
 enum class ShotFraming {
     AUTO,
     WIDE_FULL_BODY,
@@ -502,7 +534,8 @@ data class SceneScript(
     val lightingState: LightingState = LightingState.AUTO,
     val hudUnit: String = "%",
     val sfxCues: List<String> = emptyList(),
-    val customSvg: String = ""
+    val customSvg: String = "",
+    val speaker: String = ""
 ) {
     val effectiveVisualDescription: String
         get() = visualDescription.ifBlank { backgroundPrompt }
@@ -560,6 +593,7 @@ data class StudioSettings(
     val activePromptId: String = "",
     val elevenLabsKeys: List<ElevenLabsKeyEntry> = emptyList(),
     val selectedVoiceId: String = "N2IVS1w4EtoT3dr4eOWO",
+    val secondaryVoiceId: String = "",
     val ttsBaseUrl: String = "https://api.elevenlabs.io",
     val ttsModelId: String = "eleven_v4",
     val llmBaseUrl: String = "",
@@ -615,6 +649,9 @@ data class StudioSettings(
 
     val effectiveVoiceId: String
         get() = selectedVoiceId.ifBlank { "N2IVS1w4EtoT3dr4eOWO" }.replace("\r", "").replace("\n", "").trim()
+
+    val effectiveSecondaryVoiceId: String
+        get() = secondaryVoiceId.replace("\r", "").replace("\n", "").trim()
 }
 
 enum class PipelineStep(val label: String, val index: Int) {

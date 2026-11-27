@@ -73,7 +73,9 @@ class DeterministicVideoExporter(
         frameBitmapProvider: (suspend (frameIndex: Int, currentMs: Double, targetBitmap: Bitmap) -> Boolean)? = null,
         captureCoverAtMs: Double = 1200.0,
         overlayCaptionsOnCustomFrames: Boolean = false,
-        videoBitrate: Int = VIDEO_BITRATE
+        videoBitrate: Int = VIDEO_BITRATE,
+        videoWidth: Int = VIDEO_WIDTH,
+        videoHeight: Int = VIDEO_HEIGHT
     ): ExportResult = withContext(Dispatchers.Default) {
         val totalFrames = ceil((totalDurationMs / 1000.0) * VIDEO_FPS).toInt().coerceAtLeast(30)
         val tempMp4File = File(tempCacheDir, "render_${UUID.randomUUID()}.mp4")
@@ -94,11 +96,11 @@ class DeterministicVideoExporter(
         var glTextureId = 0
 
         try {
-            // 1. Configure Video Encoder (video/avc, 1080x1920, 30fps, 8Mbps)
+            // 1. Configure Video Encoder (video/avc, dynamic 1080x1920 or 1920x1080, 30fps, 12Mbps)
             val videoFormat = MediaFormat.createVideoFormat(
                 MediaFormat.MIMETYPE_VIDEO_AVC,
-                VIDEO_WIDTH,
-                VIDEO_HEIGHT
+                videoWidth,
+                videoHeight
             ).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
                 setInteger(MediaFormat.KEY_BIT_RATE, videoBitrate)
@@ -236,7 +238,7 @@ class DeterministicVideoExporter(
             glProgram = glSetup.program
             glTextureId = glSetup.textureId
 
-            frameBitmap = Bitmap.createBitmap(VIDEO_WIDTH, VIDEO_HEIGHT, Bitmap.Config.ARGB_8888)
+            frameBitmap = Bitmap.createBitmap(videoWidth, videoHeight, Bitmap.Config.ARGB_8888)
             val frameCanvas = Canvas(frameBitmap)
             val fallbackBackdropCache = mutableMapOf<Int, Bitmap>()
             val videoBufferInfo = MediaCodec.BufferInfo()
@@ -292,8 +294,8 @@ class DeterministicVideoExporter(
                 if (!renderedCustom) {
                     SceneCompositor.drawFrame(
                         canvas = frameCanvas,
-                        width = VIDEO_WIDTH.toFloat(),
-                        height = VIDEO_HEIGHT.toFloat(),
+                        width = videoWidth.toFloat(),
+                        height = videoHeight.toFloat(),
                         scenes = scenes,
                         style = style,
                         currentMs = currentMs,
@@ -308,8 +310,8 @@ class DeterministicVideoExporter(
                     val activeScene = scenes.lastOrNull { currentMs >= it.startMs } ?: scenes.first()
                     WorldFxAndCaptionRenderer.drawKaraokeCaptions(
                         canvas = frameCanvas,
-                        w = VIDEO_WIDTH.toFloat(),
-                        h = VIDEO_HEIGHT.toFloat(),
+                        w = videoWidth.toFloat(),
+                        h = videoHeight.toFloat(),
                         style = style,
                         wordTimings = activeScene.wordTimings,
                         fallbackNarration = activeScene.scene.tagalogNarration,
@@ -320,7 +322,7 @@ class DeterministicVideoExporter(
                     capturedCoverBitmap = frameBitmap.copy(Bitmap.Config.ARGB_8888, false)
                 }
 
-                GLES20.glViewport(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT)
+                GLES20.glViewport(0, 0, videoWidth, videoHeight)
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
                 GLES20.glUseProgram(glProgram)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -343,7 +345,7 @@ class DeterministicVideoExporter(
 
                 if (frameIndex % 15 == 0 || frameIndex == totalFrames - 1) {
                     val pct = (frameIndex + 1).toFloat() / totalFrames.toFloat()
-                    onRenderProgress(pct, "Rendering frame ${frameIndex + 1}/$totalFrames (1080x1920 @ 30fps)")
+                    onRenderProgress(pct, "Rendering frame ${frameIndex + 1}/$totalFrames (${videoWidth}x${videoHeight} @ 30fps)")
                 }
             }
 

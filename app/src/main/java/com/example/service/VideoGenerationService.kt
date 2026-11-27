@@ -31,6 +31,7 @@ import com.example.model.PipelineStep
 import com.example.model.ProductionMode
 import com.example.model.ScriptSourceMode
 import com.example.model.TimelineScene
+import com.example.model.VideoAspectRatio
 import com.example.model.WordTiming
 import com.example.render.CharacterSpriteProcessor
 import com.example.render.DeterministicVideoExporter
@@ -63,7 +64,9 @@ data class RenderBatchItem(
     val productionMode: ProductionMode,
     val importedClipUris: List<Uri>,
     val scriptSourceModeOverride: ScriptSourceMode?,
-    val directScriptOverride: String
+    val directScriptOverride: String,
+    val voiceIdCatOverride: String = "",
+    val aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16
 )
 
 class VideoGenerationService : Service() {
@@ -76,6 +79,8 @@ class VideoGenerationService : Service() {
         const val EXTRA_STYLE = "extra_style"
         const val EXTRA_DURATION_SEC = "extra_duration_sec"
         const val EXTRA_VOICE_ID = "extra_voice_id"
+        const val EXTRA_SECONDARY_VOICE_ID = "extra_secondary_voice_id"
+        const val EXTRA_ASPECT_RATIO = "extra_aspect_ratio"
         const val EXTRA_PRODUCTION_MODE = "extra_production_mode"
         const val EXTRA_IMPORTED_CLIP_URIS = "extra_imported_clip_uris"
         const val EXTRA_SCRIPT_SOURCE_MODE = "extra_script_source_mode"
@@ -86,6 +91,20 @@ class VideoGenerationService : Service() {
         private const val CHANNEL_ID = "toonforge_render_channel"
         private const val NOTIFICATION_ID = 4201
 
+        fun resolveSceneVoiceId(
+            speaker: String?,
+            voiceIdRat: String,
+            voiceIdCat: String
+        ): String {
+            val cleanCat = voiceIdCat.replace("\r", "").replace("\n", "").trim()
+            val cleanRat = voiceIdRat.replace("\r", "").replace("\n", "").trim()
+            return if (speaker?.trim().equals("cat", ignoreCase = true) && cleanCat.isNotBlank()) {
+                cleanCat
+            } else {
+                cleanRat
+            }
+        }
+
         fun serializeBatchItemsToJson(items: List<RenderBatchItem>): String {
             val arr = JSONArray()
             items.take(MAX_BATCH_QUEUE_SIZE).forEach { item ->
@@ -95,6 +114,8 @@ class VideoGenerationService : Service() {
                         put("style", item.style.name)
                         put("duration_sec", item.durationSec)
                         put("voice_id", item.voiceIdOverride)
+                        put("voice_id_cat", item.voiceIdCatOverride)
+                        put("aspect_ratio", item.aspectRatio.name)
                         put("production_mode", item.productionMode.name)
                         put("script_source_mode", item.scriptSourceModeOverride?.name.orEmpty())
                         put("direct_script", item.directScriptOverride)
@@ -136,7 +157,9 @@ class VideoGenerationService : Service() {
                                 productionMode = ProductionMode.fromRaw(obj.optString("production_mode", "")),
                                 importedClipUris = clips,
                                 scriptSourceModeOverride = sourceMode,
-                                directScriptOverride = obj.optString("direct_script", "")
+                                directScriptOverride = obj.optString("direct_script", ""),
+                                voiceIdCatOverride = obj.optString("voice_id_cat", ""),
+                                aspectRatio = VideoAspectRatio.fromRaw(obj.optString("aspect_ratio", ""))
                             )
                         )
                     }
@@ -174,6 +197,8 @@ class VideoGenerationService : Service() {
             ?: AnimationStyle.ATMOSPHERIC_2D_STORY
         val durationSec = intent.getIntExtra(EXTRA_DURATION_SEC, 30)
         val voiceId = intent.getStringExtra(EXTRA_VOICE_ID).orEmpty()
+        val voiceIdCat = intent.getStringExtra(EXTRA_SECONDARY_VOICE_ID).orEmpty()
+        val aspectRatio = VideoAspectRatio.fromRaw(intent.getStringExtra(EXTRA_ASPECT_RATIO))
         val productionMode = ProductionMode.fromRaw(intent.getStringExtra(EXTRA_PRODUCTION_MODE))
         val importedClipUris = intent.getStringArrayListExtra(EXTRA_IMPORTED_CLIP_URIS)
             ?.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
@@ -206,7 +231,9 @@ class VideoGenerationService : Service() {
                 productionMode = productionMode,
                 importedClipUris = importedClipUris,
                 scriptSourceModeOverride = scriptSourceModeOverride,
-                directScriptOverride = directScriptOverride
+                directScriptOverride = directScriptOverride,
+                voiceIdCatOverride = voiceIdCat,
+                aspectRatio = aspectRatio
             )
         )
     }
@@ -337,6 +364,8 @@ class VideoGenerationService : Service() {
                     style = nextItem.style,
                     durationSec = nextItem.durationSec,
                     voiceIdOverride = nextItem.voiceIdOverride,
+                    voiceIdCatOverride = nextItem.voiceIdCatOverride,
+                    aspectRatio = nextItem.aspectRatio,
                     productionMode = nextItem.productionMode,
                     importedClipUris = nextItem.importedClipUris,
                     scriptSourceModeOverride = nextItem.scriptSourceModeOverride,
@@ -427,6 +456,8 @@ class VideoGenerationService : Service() {
         style: AnimationStyle,
         durationSec: Int,
         voiceIdOverride: String,
+        voiceIdCatOverride: String = "",
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
         productionMode: ProductionMode,
         importedClipUris: List<Uri>,
         scriptSourceModeOverride: ScriptSourceMode?,
@@ -457,6 +488,11 @@ class VideoGenerationService : Service() {
             val effectiveVoiceId = voiceIdOverride
                 .replace("\r", "").replace("\n", "").trim()
                 .ifBlank { settings.effectiveVoiceId }
+            val effectiveSecondaryVoiceId = voiceIdCatOverride
+                .replace("\r", "").replace("\n", "").trim()
+                .ifBlank { settings.effectiveSecondaryVoiceId }
+            val videoWidth = aspectRatio.width
+            val videoHeight = aspectRatio.height
             val resolvedLlmModel = settings.effectiveSelectedModelId.ifBlank {
                 UniversalModelDetector.matchPresetForUrl(settings.effectiveLlmBaseUrl).defaultModelHint
             }
@@ -601,9 +637,14 @@ class VideoGenerationService : Service() {
                     sceneCount = scenes.size
                 )
 
+                val sceneVoiceId = resolveSceneVoiceId(
+                    speaker = scene.speaker,
+                    voiceIdRat = effectiveVoiceId,
+                    voiceIdCat = effectiveSecondaryVoiceId
+                )
                 val synth = ttsClient.synthesizeScene(
                     rawTagalogNarration = scene.tagalogNarration,
-                    voiceId = effectiveVoiceId,
+                    voiceId = sceneVoiceId,
                     keyPool = settingsStore.getSnapshot().elevenLabsKeys,
                     tempCacheDir = tempWorkDir,
                     customDictionary = settings.pronunciationDictionary,
@@ -660,7 +701,7 @@ class VideoGenerationService : Service() {
                     PipelineStep.ART,
                     0.8f,
                     0.60f,
-                    "Loaded custom HTML/SVG storyboard for 1080x1920 deterministic render...",
+                    "Loaded custom HTML/SVG storyboard for ${videoWidth}x${videoHeight} deterministic render...",
                     sceneIdx = scenes.size,
                     sceneCount = scenes.size
                 )
@@ -688,14 +729,16 @@ class VideoGenerationService : Service() {
                 val clipSource = ExternalClipFrameSource(
                     context = applicationContext,
                     clipUris = importedClipUris,
-                    targetWidth = DeterministicVideoExporter.VIDEO_WIDTH,
-                    targetHeight = DeterministicVideoExporter.VIDEO_HEIGHT
+                    targetWidth = videoWidth,
+                    targetHeight = videoHeight
                 )
                 externalClipFrameSource = clipSource
+                val thumbW = if (aspectRatio == VideoAspectRatio.LANDSCAPE_16_9) 640 else 360
+                val thumbH = if (aspectRatio == VideoAspectRatio.LANDSCAPE_16_9) 360 else 640
                 scenes.forEachIndexed { idx, scene ->
                     currentCoroutineContext().ensureActive()
                     val sampleThumb = clipSource.getFrameBitmap(idx, 100.0)?.let {
-                        Bitmap.createScaledBitmap(it, 360, 640, true)
+                        Bitmap.createScaledBitmap(it, thumbW, thumbH, true)
                     }
                     val startMs = stitchedAudio.sceneStartMs[idx]
                     val endMs = stitchedAudio.sceneEndMs[idx]
@@ -846,9 +889,9 @@ class VideoGenerationService : Service() {
                     0.02f,
                     0.64f,
                     if (directCustomHtmlDoc != null) {
-                        "Booting 1080x1920 WebView for Custom HTML/SVG Storyboard..."
+                        "Booting ${videoWidth}x${videoHeight} WebView for Custom HTML/SVG Storyboard..."
                     } else {
-                        "Booting 1080x1920 HTML5/SVG Motion Engine..."
+                        "Booting ${videoWidth}x${videoHeight} HTML5/SVG Motion Engine..."
                     }
                 )
                 val htmlDoc = directCustomHtmlDoc ?: MotionHtmlDirector.buildHtmlDocument(
@@ -856,7 +899,8 @@ class VideoGenerationService : Service() {
                     style = style,
                     totalDurationMs = stitchedAudio.totalDurationMs,
                     includeAiBackdrops = scenes.any { it.customSvg.isBlank() } || settings.enableAiBackgroundArt,
-                    context = applicationContext
+                    context = applicationContext,
+                    aspectRatio = aspectRatio
                 )
                 val sceneDurationsSec = if (directCustomHtmlDoc != null) {
                     stitchedAudio.sceneStartMs.indices.map { i ->
@@ -869,12 +913,11 @@ class VideoGenerationService : Service() {
                 val renderer = WebViewFrameRenderer.create(
                     context = applicationContext,
                     htmlDocument = htmlDoc,
-                    width = DeterministicVideoExporter.VIDEO_WIDTH,
-                    height = DeterministicVideoExporter.VIDEO_HEIGHT
+                    width = videoWidth,
+                    height = videoHeight,
+                    sceneDurationsSec = sceneDurationsSec,
+                    aspectRatioKey = aspectRatio.ratioKey
                 )
-                if (directCustomHtmlDoc != null && sceneDurationsSec.isNotEmpty()) {
-                    renderer.setSceneTimings(sceneDurationsSec)
-                }
                 webViewFrameRenderer = renderer
                 { _, currentMs, targetBitmap ->
                     renderer.renderFrameAt(currentMs / 1000.0, targetBitmap)
@@ -912,7 +955,9 @@ class VideoGenerationService : Service() {
                 externalClipFrameSource = externalClipFrameSource,
                 frameBitmapProvider = frameProvider,
                 overlayCaptionsOnCustomFrames = (directCustomHtmlDoc != null),
-                videoBitrate = DeterministicVideoExporter.VIDEO_BITRATE
+                videoBitrate = DeterministicVideoExporter.VIDEO_BITRATE,
+                videoWidth = videoWidth,
+                videoHeight = videoHeight
             )
 
             PipelineProgressBus.update { cur ->

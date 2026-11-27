@@ -20,6 +20,7 @@ import com.example.model.SceneScript
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
 import com.example.model.TimelineScene
+import com.example.model.VideoAspectRatio
 import com.example.model.WordTiming
 import org.json.JSONArray
 import org.json.JSONObject
@@ -310,15 +311,20 @@ object MotionHtmlDirector {
         style: AnimationStyle,
         totalDurationMs: Double,
         includeAiBackdrops: Boolean = false,
-        context: Context? = null
+        context: Context? = null,
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16
     ): String {
         val presetEngine = mapPresetEngine(style)
         val rawScripts = scenes.map { it.scene }
         val lockedProfiles = resolveLockedProfiles(rawScripts)
+        val stageW = aspectRatio.width
+        val stageH = aspectRatio.height
+        val initCapY = if (stageW > stageH) (stageH * 0.84).toInt() else 1420
 
         val payloadJson = JSONObject().apply {
             put("style", style.name)
             put("presetEngine", presetEngine.name)
+            put("aspectRatio", aspectRatio.ratioKey)
             put("totalDurationSec", (totalDurationMs / 1000.0).coerceAtLeast(1.0))
 
             val profilesJson = JSONObject()
@@ -455,7 +461,7 @@ object MotionHtmlDirector {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=1080, height=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta id="vp-meta" name="viewport" content="width=$stageW, height=$stageH, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>ToonForge Motion Engine</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -476,14 +482,14 @@ object MotionHtmlDirector {
   .cap-text {
     font-family: 'Montserrat', 'Roboto Black', 'Arial Black', sans-serif;
     font-weight: 900;
-    font-size: 88px;
-    letter-spacing: 1px;
+    font-size: 44px;
+    letter-spacing: 0.6px;
     paint-order: stroke fill;
     stroke: #0B0E14;
-    stroke-width: 19px;
+    stroke-width: 10px;
     stroke-linejoin: round;
     stroke-linecap: round;
-    filter: drop-shadow(0px 9px 12px rgba(0, 0, 0, 0.85));
+    filter: drop-shadow(0px 5px 8px rgba(0, 0, 0, 0.85));
   }
   .title-card-txt {
     font-family: 'Montserrat', 'Roboto', Arial, sans-serif;
@@ -500,7 +506,7 @@ object MotionHtmlDirector {
 </style>
 </head>
 <body>
-<svg id="stage" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">
+<svg id="stage" viewBox="0 0 $stageW $stageH" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="sky-warm" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#1E1B4B" />
@@ -558,14 +564,14 @@ object MotionHtmlDirector {
       </feMerge>
     </filter>
     <clipPath id="stage-clip">
-      <rect x="0" y="0" width="1080" height="1920" />
+      <rect id="stage-clip-rect" x="0" y="0" width="$stageW" height="$stageH" />
     </clipPath>
   </defs>
 
   <g clip-path="url(#stage-clip)">
     <!-- Camera Transform Group -->
     <g id="camera-root">
-      <image id="ai-backdrop-img" x="-54" y="-96" width="1188" height="2112" preserveAspectRatio="xMidYMid slice" opacity="0" />
+      <image id="ai-backdrop-img" x="-54" y="-96" width="${stageW + 108}" height="${stageH + 192}" preserveAspectRatio="xMidYMid slice" opacity="0" />
       <g id="bg-far"></g>
       <g id="bg-mid"></g>
       <g id="bg-props"></g>
@@ -583,12 +589,12 @@ object MotionHtmlDirector {
     <g id="editorial-hook-layer"></g>
 
     <!-- Cinema Post-Processing: Rim Light + Atmospheric Vignette + 0.035 Film Grain -->
-    <rect x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
-    <rect id="vignette-rect" x="0" y="0" width="1080" height="1920" fill="url(#vignette-grad)" pointer-events="none" />
-    <rect id="cinema-grain-rect" x="0" y="0" width="1080" height="1920" fill="#FFFFFF" filter="url(#cinema-grain)" opacity="0.035" pointer-events="none" />
+    <rect id="rim-light-rect" x="0" y="0" width="$stageW" height="$stageH" fill="url(#rim-light-grad)" pointer-events="none" />
+    <rect id="vignette-rect" x="0" y="0" width="$stageW" height="$stageH" fill="url(#vignette-grad)" pointer-events="none" />
+    <rect id="cinema-grain-rect" x="0" y="0" width="$stageW" height="$stageH" fill="#FFFFFF" filter="url(#cinema-grain)" opacity="0.035" pointer-events="none" />
 
-    <!-- Safe Zone Viral 1-2 Word Punchy Captions at y = 74% (1420px) -->
-    <g id="caption-layer" transform="translate(540, 1420)"></g>
+    <!-- Safe Zone Responsive Captions (max-width 86% centered, <= 2 lines) -->
+    <g id="caption-layer" transform="translate(${stageW / 2}, $initCapY)"></g>
   </g>
 </svg>
 
@@ -602,6 +608,13 @@ object MotionHtmlDirector {
   const PROFILES = DATA.profiles || {};
   const PRESET = DATA.presetEngine || "ATMOSPHERIC_2D";
 
+  let STAGE_W = DATA.aspectRatio === "16:9" ? 1920 : 1080;
+  let STAGE_H = DATA.aspectRatio === "16:9" ? 1080 : 1920;
+  let IS_WIDE = STAGE_W > STAGE_H;
+
+  const elStage = document.getElementById("stage");
+  const elVpMeta = document.getElementById("vp-meta");
+  const elStageClipRect = document.getElementById("stage-clip-rect");
   const elCamera = document.getElementById("camera-root");
   const elBackdropImg = document.getElementById("ai-backdrop-img");
   const elBgFar = document.getElementById("bg-far");
@@ -617,9 +630,58 @@ object MotionHtmlDirector {
   const elSpeech = document.getElementById("speech-bubble-layer");
   const elHook = document.getElementById("editorial-hook-layer");
   const elCaption = document.getElementById("caption-layer");
+  const elRimLight = document.getElementById("rim-light-rect");
   const elVignette = document.getElementById("vignette-rect");
+  const elGrain = document.getElementById("cinema-grain-rect");
 
   let lastSceneIdx = -1;
+
+  function applyStageDimensions() {
+    IS_WIDE = STAGE_W > STAGE_H;
+    if (elVpMeta) {
+      elVpMeta.setAttribute("content", "width=" + STAGE_W + ", height=" + STAGE_H + ", initial-scale=1.0, maximum-scale=1.0, user-scalable=no");
+    }
+    if (elStage) elStage.setAttribute("viewBox", "0 0 " + STAGE_W + " " + STAGE_H);
+    if (elStageClipRect) {
+      elStageClipRect.setAttribute("width", STAGE_W);
+      elStageClipRect.setAttribute("height", STAGE_H);
+    }
+    if (elBackdropImg) {
+      const padX = Math.round(STAGE_W * 0.05);
+      const padY = Math.round(STAGE_H * 0.05);
+      elBackdropImg.setAttribute("x", -padX);
+      elBackdropImg.setAttribute("y", -padY);
+      elBackdropImg.setAttribute("width", STAGE_W + padX * 2);
+      elBackdropImg.setAttribute("height", STAGE_H + padY * 2);
+    }
+    [elRimLight, elVignette, elGrain].forEach(function(r) {
+      if (r) {
+        r.setAttribute("width", STAGE_W);
+        r.setAttribute("height", STAGE_H);
+      }
+    });
+    const capY = IS_WIDE ? Math.round(STAGE_H * 0.84) : 1420;
+    if (elCaption) elCaption.setAttribute("transform", "translate(" + (STAGE_W / 2) + ", " + capY + ")");
+  }
+
+  applyStageDimensions();
+
+  window.setAspectRatio = function(ratio) {
+    const norm = String(ratio || "").trim();
+    if (norm === "16:9") {
+      STAGE_W = 1920;
+      STAGE_H = 1080;
+    } else {
+      STAGE_W = 1080;
+      STAGE_H = 1920;
+    }
+    applyStageDimensions();
+    lastSceneIdx = -1;
+    if (SCENES.length > 0 && typeof window.seekToTime === "function") {
+      window.seekToTime(window.__toonforgeCurrentSec || 0);
+    }
+    return STAGE_W + "x" + STAGE_H;
+  };
 
   function svgEl(tag, attrs, parent) {
     const node = document.createElementNS(NS, tag);
@@ -701,8 +763,8 @@ object MotionHtmlDirector {
       const imported = document.importNode(root, true);
       imported.setAttribute("x", "0");
       imported.setAttribute("y", "0");
-      imported.setAttribute("width", "1080");
-      imported.setAttribute("height", "1920");
+      imported.setAttribute("width", String(STAGE_W));
+      imported.setAttribute("height", String(STAGE_H));
       if (!imported.getAttribute("viewBox")) {
         imported.setAttribute("viewBox", "0 0 1080 1920");
       }
@@ -731,12 +793,13 @@ object MotionHtmlDirector {
     const pal = themePalette(scene.theme);
     const hasCustomSvg = !!(scene.customSvg && scene.customSvg.trim().length > 0 && injectCustomSvg(scene.customSvg));
     const hasBackdrop = !hasCustomSvg && !!(scene.backdropUri && scene.backdropUri.trim().length > 0);
+    const cx = STAGE_W / 2;
 
     if (hasCustomSvg) {
       // Tier 1: Bespoke LLM-generated self-contained SVG fills the stage unobstructed
       elBackdropImg.setAttribute("opacity", "0");
       elBackdropImg.removeAttribute("href");
-      svgEl("rect", { x: -160, y: -160, width: 1400, height: 2240, fill: "#080B12" }, elBgFar);
+      svgEl("rect", { x: -200, y: -200, width: STAGE_W + 400, height: STAGE_H + 400, fill: "#080B12" }, elBgFar);
     } else if (hasBackdrop) {
       // Tier 2: Full-bleed 2D flat vector illustration (opacity=1, zero wall/city boxes covering it)
       elBackdropImg.setAttribute("href", scene.backdropUri);
@@ -745,33 +808,49 @@ object MotionHtmlDirector {
       // Tier 3: Clean atmospheric gradient stage + volumetric rays (zero generic bedrooms/city blocks)
       elBackdropImg.setAttribute("opacity", "0");
       elBackdropImg.removeAttribute("href");
-      svgEl("rect", { x: -160, y: -160, width: 1400, height: 2240, fill: pal.sky }, elBgFar);
+      svgEl("rect", { x: -200, y: -200, width: STAGE_W + 400, height: STAGE_H + 400, fill: pal.sky }, elBgFar);
 
       if (PRESET === "KINETIC_DIAGRAM") {
-        for (let gx = 0; gx <= 1080; gx += 120) {
-          svgEl("line", { x1: gx, y1: 0, x2: gx, y2: 1920, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
+        for (let gx = 0; gx <= STAGE_W; gx += 120) {
+          svgEl("line", { x1: gx, y1: 0, x2: gx, y2: STAGE_H, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
         }
-        for (let gy = 0; gy <= 1920; gy += 120) {
-          svgEl("line", { x1: 0, y1: gy, x2: 1080, y2: gy, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
+        for (let gy = 0; gy <= STAGE_H; gy += 120) {
+          svgEl("line", { x1: 0, y1: gy, x2: STAGE_W, y2: gy, stroke: "#38BDF8", "stroke-width": 1.5, opacity: 0.12 }, elBgFar);
         }
       } else {
         const filterAttr = PRESET === "PAPER_DIORAMA" ? { filter: "url(#paper-grain)" } : {};
         const stageGrp = svgEl("g", filterAttr, elBgMid);
-        svgEl("ellipse", { cx: 540, cy: 1320, rx: 680, ry: 280, fill: pal.floor, opacity: "0.52" }, stageGrp);
-        svgEl("circle", { cx: 540, cy: 760, r: 440, fill: pal.accent, opacity: "0.08" }, stageGrp);
+        svgEl("ellipse", {
+          cx: cx,
+          cy: Math.round(STAGE_H * 0.69),
+          rx: Math.round(STAGE_W * 0.63),
+          ry: Math.round(STAGE_H * 0.15),
+          fill: pal.floor,
+          opacity: "0.52"
+        }, stageGrp);
+        svgEl("circle", {
+          cx: cx,
+          cy: Math.round(STAGE_H * 0.40),
+          r: Math.round(Math.min(STAGE_W, STAGE_H) * 0.40),
+          fill: pal.accent,
+          opacity: "0.08"
+        }, stageGrp);
       }
     }
 
     // Subtle atmospheric volumetric light shafts & dust motes (kept light when custom artwork is active)
     if (!hasCustomSvg && (PRESET === "ATMOSPHERIC_2D" || PRESET === "PAPER_DIORAMA")) {
       const beamAlpha = hasBackdrop ? "0.28" : (PRESET === "ATMOSPHERIC_2D" ? "0.78" : "0.40");
+      const b1Top1 = Math.round(STAGE_W * 0.64), b1Top2 = Math.round(STAGE_W * 0.89);
+      const b1Bot1 = Math.round(STAGE_W * 0.08), b1Bot2 = Math.round(STAGE_W * 0.58);
+      const bYTop = Math.round(STAGE_H * 0.06), bYBot = Math.round(STAGE_H * 0.77);
       svgEl("polygon", {
-        points: "690,120 960,120 620,1480 80,1480",
+        points: b1Top1 + "," + bYTop + " " + b1Top2 + "," + bYTop + " " + b1Bot2 + "," + bYBot + " " + b1Bot1 + "," + bYBot,
         fill: pal.beam,
         opacity: beamAlpha
       }, elBeams);
       svgEl("polygon", {
-        points: "120,0 310,0 590,1420 260,1420",
+        points: Math.round(STAGE_W * 0.11) + ",0 " + Math.round(STAGE_W * 0.29) + ",0 " + Math.round(STAGE_W * 0.55) + "," + Math.round(STAGE_H * 0.74) + " " + Math.round(STAGE_W * 0.24) + "," + Math.round(STAGE_H * 0.74),
         fill: pal.beam,
         opacity: hasBackdrop ? "0.14" : "0.30"
       }, elBeams);
@@ -779,8 +858,8 @@ object MotionHtmlDirector {
       for (let i = 0; i < 10; i++) {
         svgEl("circle", {
           id: "dust-mote-" + i,
-          cx: 420 + i * 32,
-          cy: 340 + i * 88,
+          cx: Math.round(STAGE_W * 0.38) + i * 32,
+          cy: Math.round(STAGE_H * 0.18) + i * Math.round(STAGE_H * 0.045),
           r: 3 + (i % 3) * 1.4,
           fill: "#FFFBEB",
           opacity: hasBackdrop ? "0.35" : "0.50"
@@ -790,12 +869,12 @@ object MotionHtmlDirector {
 
     // Soft edge vignette silhouettes
     svgEl("path", {
-      d: "M-80,1920 L-80,1580 Q35,1630 85,1920 Z",
+      d: "M-80," + STAGE_H + " L-80," + Math.round(STAGE_H * 0.82) + " Q35," + Math.round(STAGE_H * 0.85) + " 85," + STAGE_H + " Z",
       fill: "#05070E",
       opacity: hasCustomSvg ? "0.22" : "0.42"
     }, elFg);
     svgEl("path", {
-      d: "M1160,1920 L1160,1600 Q1030,1660 985,1920 Z",
+      d: "M" + (STAGE_W + 80) + "," + STAGE_H + " L" + (STAGE_W + 80) + "," + Math.round(STAGE_H * 0.83) + " Q" + (STAGE_W - 50) + "," + Math.round(STAGE_H * 0.86) + " " + (STAGE_W - 95) + "," + STAGE_H + " Z",
       fill: "#05070E",
       opacity: hasCustomSvg ? "0.20" : "0.38"
     }, elFg);
@@ -831,11 +910,12 @@ object MotionHtmlDirector {
     // 2. When using 2D flat vector backdrop (or cutaway/diagram flow), composite crisp SVG vector flow rails
     if (!nestedSvg && (scene.backdropUri || !scene.hasCharacter)) {
       const dir = scene.flowDirection || "LEFT_TO_RIGHT";
+      const cx = STAGE_W / 2;
       if (scene.pointerCallouts && scene.pointerCallouts.length > 0) {
         const beatPulse = (sceneElapsed % 2.5) < 0.45 ? 1 + 0.08 * Math.sin(((sceneElapsed % 2.5) / 0.45) * Math.PI) : 1;
         scene.pointerCallouts.forEach(function(pc) {
-          const px = clamp((pc.x / 270) * 1080, 180, 900);
-          const py = clamp((pc.y / 480) * 1920, 420, 1140);
+          const px = clamp((pc.x / 270) * STAGE_W, Math.round(STAGE_W * 0.16), Math.round(STAGE_W * 0.84));
+          const py = clamp((pc.y / 480) * STAGE_H, Math.round(STAGE_H * 0.22), Math.round(STAGE_H * 0.62));
           const pg = svgEl("g", { transform: "translate(" + px.toFixed(0) + "," + py.toFixed(0) + ") scale(" + beatPulse.toFixed(3) + ")" }, elFlowOverlay);
           svgEl("circle", { cx: 0, cy: 0, r: 12, fill: "#22D3EE", stroke: "#141821", "stroke-width": "2.5" }, pg);
           svgEl("line", { x1: 0, y1: -12, x2: 0, y2: -48, stroke: "#22D3EE", "stroke-width": "3.5" }, pg);
@@ -845,15 +925,16 @@ object MotionHtmlDirector {
           pt.textContent = pc.label.toUpperCase();
         });
       } else if (dir === "UP" || dir === "DOWN" || dir === "RADIAL_BURST" || PRESET === "KINETIC_DIAGRAM") {
-        const x1 = 200, x2 = 880, yMid = 1045;
+        const x1 = Math.round(STAGE_W * 0.18), x2 = Math.round(STAGE_W * 0.82), yMid = Math.round(STAGE_H * 0.54);
+        const yTop = Math.round(STAGE_H * 0.29), yBot = Math.round(STAGE_H * 0.56);
         const dPath = dir === "UP"
-          ? "M540,1080 L540,560"
-          : (dir === "DOWN" ? "M540,560 L540,1080" : "M" + x1 + "," + yMid + " Q540," + (yMid - 75) + " " + x2 + "," + yMid);
+          ? "M" + cx + "," + yBot + " L" + cx + "," + yTop
+          : (dir === "DOWN" ? "M" + cx + "," + yTop + " L" + cx + "," + yBot : "M" + x1 + "," + yMid + " Q" + cx + "," + (yMid - 75) + " " + x2 + "," + yMid);
         svgEl("path", { d: dPath, stroke: "#38BDF8", "stroke-width": "4", "stroke-dasharray": "14 10", fill: "none", opacity: "0.45" }, elFlowOverlay);
         for (let k = 0; k < 3; k++) {
           const frac = (tSec * 0.45 + k * 0.33) % 1;
-          const px = dir === "UP" || dir === "DOWN" ? 540 : lerp(x1, x2, frac);
-          const py = dir === "UP" ? lerp(1080, 560, frac) : (dir === "DOWN" ? lerp(560, 1080, frac) : yMid - Math.sin(frac * Math.PI) * 38);
+          const px = dir === "UP" || dir === "DOWN" ? cx : lerp(x1, x2, frac);
+          const py = dir === "UP" ? lerp(yBot, yTop, frac) : (dir === "DOWN" ? lerp(yTop, yBot, frac) : yMid - Math.sin(frac * Math.PI) * 38);
           svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: 7.5, fill: "#FFD60A", stroke: "#141821", "stroke-width": "2", opacity: "0.88" }, elFlowOverlay);
         }
       }
@@ -865,7 +946,7 @@ object MotionHtmlDirector {
     clearNode(elSpeech);
     clearNode(elHook);
 
-    // Spring-physics entry curve (cubic-bezier(0.34, 1.56, 0.64, 1))
+    const cx = STAGE_W / 2;
     const entrySpring = springOvershoot(clamp(sceneElapsed / 0.44, 0, 1));
     const entryOpacity = clamp(sceneElapsed / 0.18, 0, 1);
     const slideY = lerp(-36, 0, easeOutExpoSnap(clamp(sceneElapsed / 0.38, 0, 1)));
@@ -873,14 +954,15 @@ object MotionHtmlDirector {
     const subPulse = beatLocal < 0.38 ? 1 + 0.035 * Math.sin((beatLocal / 0.38) * Math.PI) : 1.0;
 
     if (scene.titleCard) {
+      const titleY = IS_WIDE ? 84 : 158;
       const cardG = svgEl("g", {
-        transform: "translate(540," + (158 + slideY) + ") scale(" + (entrySpring * subPulse).toFixed(4) + ")",
+        transform: "translate(" + cx + "," + (titleY + slideY) + ") scale(" + (entrySpring * subPulse * (IS_WIDE ? 0.90 : 1.0)).toFixed(4) + ")",
         opacity: entryOpacity
       }, elHud);
       const pill = scene.statusPill || "NONE";
       const pillGlyph = pill === "PROBLEM" ? "✕ " : ((pill === "GOAL" || pill === "FIX") ? "✓ " : "");
       const pillLabel = pill !== "NONE" ? (pillGlyph + pill) : "";
-      const cardW = Math.min(920, Math.max(460, (scene.titleCard.length + pillLabel.length) * 26 + 96));
+      const cardW = Math.min(Math.round(STAGE_W * 0.85), Math.max(460, (scene.titleCard.length + pillLabel.length) * 26 + 96));
       svgEl("rect", {
         x: -cardW / 2, y: -44, width: cardW, height: 88, rx: 22,
         fill: "#0B1120", "fill-opacity": "0.92",
@@ -896,13 +978,14 @@ object MotionHtmlDirector {
       titleTxt.textContent = (pillLabel ? "[" + pillLabel + "] " : "") + scene.titleCard;
     }
 
-    // Topic / Callout bracket card in top safe zone (y <= 345)
+    // Topic / Callout bracket card in top safe zone
     if (scene.calloutBanner) {
+      const bannerY = IS_WIDE ? 168 : 258;
       const badgeG = svgEl("g", {
-        transform: "translate(540," + (258 + slideY * 0.6) + ") scale(" + entrySpring.toFixed(4) + ")",
+        transform: "translate(" + cx + "," + (bannerY + slideY * 0.6) + ") scale(" + (entrySpring * (IS_WIDE ? 0.90 : 1.0)).toFixed(4) + ")",
         opacity: entryOpacity
       }, elHud);
-      const bw = Math.min(820, Math.max(320, scene.calloutBanner.length * 24 + 80));
+      const bw = Math.min(Math.round(STAGE_W * 0.76), Math.max(320, scene.calloutBanner.length * 24 + 80));
       svgEl("rect", {
         x: -bw / 2, y: -32, width: bw, height: 64, rx: 16,
         fill: "#111827", "fill-opacity": "0.92",
@@ -915,11 +998,11 @@ object MotionHtmlDirector {
       bt.textContent = scene.calloutBanner.toUpperCase();
     }
 
-    // Pop-in Speech Bubble (only shown if character is rendered, or as top-right callout)
+    // Pop-in Speech Bubble (only shown if character is rendered)
     if (scene.speechBubble && scene.hasCharacter) {
       const charOnRight = scene.shotFraming === "RULE_OF_THIRDS_RIGHT";
-      const bx = charOnRight ? 330 : 750;
-      const by = 435;
+      const bx = charOnRight ? Math.round(cx - (IS_WIDE ? 320 : 210)) : Math.round(cx + (IS_WIDE ? 320 : 210));
+      const by = IS_WIDE ? 295 : 435;
       const pop = springOvershoot(clamp((sceneElapsed - 0.15) / 0.36, 0, 1));
       if (pop > 0.02) {
         const sg = svgEl("g", { transform: "translate(" + bx + "," + by + ") scale(" + pop.toFixed(4) + ")", opacity: clamp((sceneElapsed - 0.15) / 0.18, 0, 1) }, elSpeech);
@@ -943,10 +1026,12 @@ object MotionHtmlDirector {
       }
     }
 
-    // Data-driven Kinetic Diagrams / HUD Gauges (placed cleanly in y=1115..1275 lower band)
+    // Data-driven Kinetic Diagrams / HUD Gauges
     const prog = easeOutExpoSnap(clamp(sceneElapsed / Math.min(1.6, sceneDur * 0.65), 0, 1));
     if (scene.hudWidget !== "NONE" || scene.diagramType !== "NONE") {
-      const dg = svgEl("g", { transform: "translate(540, 1185) scale(" + subPulse.toFixed(4) + ")", opacity: entryOpacity }, elHud);
+      const hudY = IS_WIDE ? 705 : 1185;
+      const hudScale = subPulse * (IS_WIDE ? 0.86 : 1.0);
+      const dg = svgEl("g", { transform: "translate(" + cx + "," + hudY + ") scale(" + hudScale.toFixed(4) + ")", opacity: entryOpacity }, elHud);
       svgEl("rect", {
         x: -430, y: -74, width: 860, height: 148, rx: 24,
         fill: "#090D16", "fill-opacity": "0.90",
@@ -1003,9 +1088,10 @@ object MotionHtmlDirector {
       const hookTitle = (SCENES[0].titleCard || SCENES[0].calloutBanner || "ALAM MO BA ITO?").toUpperCase();
       const hookSpring = springOvershoot(clamp(tSec / 0.36, 0, 1));
       const exitOpacity = tSec > 1.45 ? clamp(1 - (tSec - 1.45) / 0.35, 0, 1) : 1;
+      const hookY = IS_WIDE ? 245 : 365;
       const hg = svgEl("g", {
         id: "editorial-hook-overlay",
-        transform: "translate(540, 365) scale(" + hookSpring.toFixed(4) + ")",
+        transform: "translate(" + cx + "," + hookY + ") scale(" + (hookSpring * (IS_WIDE ? 0.90 : 1.0)).toFixed(4) + ")",
         opacity: exitOpacity.toFixed(3),
         class: "paper-shadow"
       }, elHook);
@@ -1235,11 +1321,14 @@ object MotionHtmlDirector {
 
     const bob = Math.sin(tSec * 2.2) * 8;
     const enterSpring = springOvershoot(clamp(sceneElapsed / 0.48, 0, 1));
+    const cx = STAGE_W / 2;
+    const fy = (IS_WIDE ? 520 : 830) + bob;
+    const baseScale = (IS_WIDE ? 0.88 : 1.15) * enterSpring;
 
     if (scene.theme === "BANK_VAULT_FINANCE" || scene.handProp === "MONEY_BAG") {
       const fg = svgEl("g", {
         id: "full-scene-focal",
-        transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
+        transform: "translate(" + cx + "," + fy.toFixed(1) + ") scale(" + baseScale.toFixed(4) + ")",
         class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
       }, elCast);
       svgEl("ellipse", { cx: 0, cy: 175, rx: 190, ry: 32, fill: "#020617", opacity: "0.48" }, fg);
@@ -1251,7 +1340,7 @@ object MotionHtmlDirector {
     } else if (scene.theme === "MODERN_OFFICE_DESK" || scene.handProp === "PHONE_SCREEN") {
       const fg = svgEl("g", {
         id: "full-scene-focal",
-        transform: "translate(540," + (830 + bob).toFixed(1) + ") scale(" + (1.15 * enterSpring).toFixed(4) + ")",
+        transform: "translate(" + cx + "," + fy.toFixed(1) + ") scale(" + baseScale.toFixed(4) + ")",
         class: PRESET === "PAPER_DIORAMA" ? "paper-shadow" : ""
       }, elCast);
       svgEl("ellipse", { cx: 0, cy: 180, rx: 210, ry: 30, fill: "#020617", opacity: "0.45" }, fg);
@@ -1287,22 +1376,24 @@ object MotionHtmlDirector {
     };
 
     const enterT = easeOutExpoSnap(clamp(sceneElapsed / 0.45, 0, 1));
-    let charX = 540;
-    let charY = 1045;
-    let charScale = 1.62;
+    const cx = STAGE_W / 2;
+    const scaleFactor = IS_WIDE ? 0.72 : 1.0;
+    let charX = cx;
+    let charY = IS_WIDE ? 605 : 1045;
+    let charScale = 1.62 * scaleFactor;
     let facing = 1;
 
     switch (scene.shotFraming) {
       case "CLOSE_UP_FACE":
-        charX = 540; charY = 1140; charScale = 2.25; break;
+        charX = cx; charY = IS_WIDE ? 655 : 1140; charScale = 2.25 * scaleFactor; break;
       case "MEDIUM_WAIST_UP":
-        charX = 540; charY = 1085; charScale = 1.85; break;
+        charX = cx; charY = IS_WIDE ? 625 : 1085; charScale = 1.85 * scaleFactor; break;
       case "RULE_OF_THIRDS_LEFT":
-        charX = 355; charY = 1055; charScale = 1.66; facing = 1; break;
+        charX = cx - (IS_WIDE ? 280 : 185); charY = IS_WIDE ? 610 : 1055; charScale = 1.66 * scaleFactor; facing = 1; break;
       case "RULE_OF_THIRDS_RIGHT":
-        charX = 725; charY = 1055; charScale = 1.66; facing = -1; break;
+        charX = cx + (IS_WIDE ? 280 : 185); charY = IS_WIDE ? 610 : 1055; charScale = 1.66 * scaleFactor; facing = -1; break;
       default:
-        charX = 540; charY = 1045; charScale = 1.56; break;
+        charX = cx; charY = IS_WIDE ? 605 : 1045; charScale = 1.56 * scaleFactor; break;
     }
 
     if (scene.characterPose === "WALK_ACROSS_LEFT_TO_RIGHT") {
@@ -1314,12 +1405,12 @@ object MotionHtmlDirector {
     if (scene.secondaryRole && PROFILES[scene.secondaryRole]) {
       const partnerProf = PROFILES[scene.secondaryRole];
       drawVectorCharacter(elCast, partnerProf, {
-        baseX: 770, baseY: 1050, scale: 1.48, facing: -1,
+        baseX: cx + (IS_WIDE ? 260 : 230), baseY: IS_WIDE ? 610 : 1050, scale: 1.48 * scaleFactor, facing: -1,
         pose: "THREE_QUARTER_EXPLAIN", expr: "HAPPY_TALK", handProp: "NONE",
         tSec: tSec + 0.5, isPaper: isPaper
       });
-      charX = 310;
-      charScale = 1.52;
+      charX = cx - (IS_WIDE ? 260 : 230);
+      charScale = 1.52 * scaleFactor;
       facing = 1;
     }
 
@@ -1335,15 +1426,15 @@ object MotionHtmlDirector {
     if (scene.lightingState === "RAIN_STORM") {
       for (let r = 0; r < 16; r++) {
         const rf = (tSec * 1.8 + r * 0.19) % 1;
-        const rx = 80 + (r * 63) % 940 - rf * 60;
-        const ry = 180 + rf * 1120;
+        const rx = 80 + (r * 97) % (STAGE_W - 140) - rf * 60;
+        const ry = Math.round(STAGE_H * 0.09) + rf * Math.round(STAGE_H * 0.58);
         svgEl("line", { x1: rx, y1: ry, x2: rx - 12, y2: ry + 24, stroke: "#7DD3FC", "stroke-width": "3", opacity: "0.55" }, elFx);
       }
     }
     if (scene.worldFx === "COIN_RAIN") {
       for (let i = 0; i < 6; i++) {
-        const cx = 150 + i * 155;
-        const cy = ((tSec * 220 + i * 190) % 1300) + 120;
+        const cx = Math.round(STAGE_W * 0.14) + i * Math.round(STAGE_W * 0.14);
+        const cy = ((tSec * 220 + i * 190) % Math.round(STAGE_H * 0.68)) + Math.round(STAGE_H * 0.06);
         svgEl("circle", { cx: cx, cy: cy, r: 22, fill: "#FACC15", stroke: "#B45309", "stroke-width": "4", opacity: "0.75" }, elFx);
         const t = svgEl("text", { x: cx, y: cy + 8, "text-anchor": "middle", fill: "#78350F", "font-size": "22", class: "diagram-txt" }, elFx);
         t.textContent = "₱";
@@ -1351,8 +1442,8 @@ object MotionHtmlDirector {
     } else if (scene.worldFx === "FIRE_SPARKS") {
       for (let i = 0; i < 8; i++) {
         const prog = (tSec * 0.55 + i * 0.14) % 1;
-        const sx = 180 + (i * 112) % 720 + Math.sin(tSec * 4 + i) * 18;
-        const sy = 1280 - prog * 680;
+        const sx = Math.round(STAGE_W * 0.16) + (i * Math.round(STAGE_W * 0.10)) % Math.round(STAGE_W * 0.68) + Math.sin(tSec * 4 + i) * 18;
+        const sy = Math.round(STAGE_H * 0.68) - prog * Math.round(STAGE_H * 0.36);
         svgEl("circle", { cx: sx, cy: sy, r: 8 * (1 - prog * 0.6), fill: i % 2 === 0 ? "#FB923C" : "#FDE047", opacity: (1 - prog) * 0.78 }, elFx);
       }
     }
@@ -1388,9 +1479,11 @@ object MotionHtmlDirector {
         break;
     }
     scale *= subBeatZoom;
+    const cx = STAGE_W / 2;
+    const cy = STAGE_H / 2;
     elCamera.setAttribute(
       "transform",
-      "translate(540,960) scale(" + scale.toFixed(4) + ") translate(" + (-540 + tx).toFixed(2) + "," + (-960 + ty).toFixed(2) + ")"
+      "translate(" + cx + "," + cy + ") scale(" + scale.toFixed(4) + ") translate(" + (-cx + tx).toFixed(2) + "," + (-cy + ty).toFixed(2) + ")"
     );
     // Subtle multi-plane parallax on far/mid layers
     elBgFar.setAttribute("transform", "translate(" + (tx * 0.25).toFixed(2) + "," + (ty * 0.25).toFixed(2) + ")");
@@ -1403,13 +1496,29 @@ object MotionHtmlDirector {
       // Keep dust motes strictly within the diagonal beam cone
       const lane = (i % 5) / 4;
       const frac = ((tSec * (0.04 + (i % 3) * 0.015)) + i * 0.11) % 1;
-      const topX = lerp(705, 935, lane);
-      const botX = lerp(120, 580, lane);
+      const topX = lerp(STAGE_W * 0.65, STAGE_W * 0.87, lane);
+      const botX = lerp(STAGE_W * 0.11, STAGE_W * 0.54, lane);
       const x = lerp(topX, botX, frac) + Math.sin(tSec * 1.4 + i) * 10;
-      const y = lerp(160, 1380, frac);
+      const y = lerp(STAGE_H * 0.08, STAGE_H * 0.72, frac);
       m.setAttribute("cx", x.toFixed(1));
       m.setAttribute("cy", y.toFixed(1));
     }
+  }
+
+  function splitLongCaptionWord(word) {
+    if (!word || word.length <= 22) return [word];
+    const parts = [];
+    let i = 0;
+    while (i < word.length) {
+      const remain = word.length - i;
+      if (remain <= 18) {
+        parts.push(word.slice(i));
+        break;
+      }
+      parts.push(word.slice(i, i + 16) + "-");
+      i += 16;
+    }
+    return parts;
   }
 
   function renderViralCaptions(scene, tSec) {
@@ -1422,19 +1531,90 @@ object MotionHtmlDirector {
       if (tSec >= captions[i].startSec) active = captions[i];
     }
 
+    const rawTokens = active.tokens || [];
+    if (rawTokens.length === 0) return;
+
+    const expandedTokens = [];
+    for (let i = 0; i < rawTokens.length; i++) {
+      const tok = rawTokens[i];
+      const pieces = splitLongCaptionWord(tok.text || "");
+      for (let p = 0; p < pieces.length; p++) {
+        expandedTokens.push({ text: pieces[p], tone: tok.tone });
+      }
+    }
+
+    const totalText = expandedTokens.map(function(t) { return t.text; }).join(" ");
+    const totalChars = totalText.length;
+    const maxSafeWidth = STAGE_W * 0.86;
+    let baseFont = IS_WIDE ? 46 : 44;
+    if (totalChars > 22) {
+      baseFont = Math.max(24, Math.round(baseFont * (22 / totalChars) * 1.18));
+    }
+
+    let lines = [expandedTokens];
+    if (expandedTokens.length >= 2 && (totalChars > 18 || totalChars * baseFont * 0.56 > maxSafeWidth)) {
+      const splitIdx = Math.ceil(expandedTokens.length / 2);
+      lines = [expandedTokens.slice(0, splitIdx), expandedTokens.slice(splitIdx)];
+    }
+
     const popElapsed = Math.max(0, tSec - active.startSec);
     const popFrac = clamp(popElapsed / 0.12, 0, 1);
-    const popScale = lerp(1.20, 1.0, easeOutExpoSnap(popFrac));
+    const popScale = lerp(1.14, 1.0, easeOutExpoSnap(popFrac));
 
     const chunkG = svgEl("g", { transform: "scale(" + popScale.toFixed(4) + ")" }, elCaption);
-    const tokens = active.tokens || [];
-    const txt = svgEl("text", { x: 0, y: 0, "text-anchor": "middle", class: "cap-text" }, chunkG);
+    const pillBg = svgEl("rect", {
+      x: -200, y: -40, width: 400, height: 80, rx: 18,
+      fill: "#080B14", "fill-opacity": "0.82",
+      stroke: "rgba(255,255,255,0.16)", "stroke-width": "2"
+    }, chunkG);
 
-    for (let i = 0; i < tokens.length; i++) {
-      const tok = tokens[i];
-      const fill = tok.tone === "DANGER" ? "#FF453A" : (tok.tone === "ACCENT" ? "#FFD60A" : "#FFFFFF");
-      const span = svgEl("tspan", { fill: fill }, txt);
-      span.textContent = (i > 0 ? " " : "") + tok.text;
+    let fontSize = baseFont;
+    let textNodes = [];
+    for (let attempt = 0; attempt < 14; attempt++) {
+      for (let n = 0; n < textNodes.length; n++) chunkG.removeChild(textNodes[n]);
+      textNodes = [];
+
+      const lineHeight = Math.round(fontSize * 1.24);
+      const startY = lines.length === 1 ? Math.round(fontSize * 0.34) : Math.round(-lineHeight * 0.18);
+      const strokeW = Math.max(5, Math.round(fontSize * 0.22));
+      let widest = 0;
+
+      for (let lIdx = 0; lIdx < lines.length; lIdx++) {
+        const lineTokens = lines[lIdx];
+        const yPos = startY + lIdx * lineHeight;
+        const txt = svgEl("text", {
+          x: 0,
+          y: yPos,
+          "text-anchor": "middle",
+          class: "cap-text",
+          style: "font-size:" + fontSize + "px;stroke-width:" + strokeW + "px;"
+        }, chunkG);
+        for (let tIdx = 0; tIdx < lineTokens.length; tIdx++) {
+          const tok = lineTokens[tIdx];
+          const fill = tok.tone === "DANGER" ? "#FF453A" : (tok.tone === "ACCENT" ? "#FFD60A" : "#FFFFFF");
+          const span = svgEl("tspan", { fill: fill }, txt);
+          span.textContent = (tIdx > 0 ? " " : "") + tok.text;
+        }
+        textNodes.push(txt);
+        const measured = typeof txt.getComputedTextLength === "function"
+          ? txt.getComputedTextLength()
+          : (lineTokens.map(function(t) { return t.text; }).join(" ").length * fontSize * 0.62);
+        if (measured > widest) widest = measured;
+      }
+
+      if (widest <= maxSafeWidth || fontSize <= 20) {
+        const padX = 28;
+        const padY = 16;
+        const pillW = Math.min(STAGE_W * 0.90, Math.max(140, widest + padX * 2));
+        const pillH = lines.length * lineHeight + padY * 2;
+        const pillTop = lines.length === 1 ? -(fontSize + padY * 0.65) : (startY - fontSize - padY * 0.45);
+        pillBg.setAttribute("x", (-pillW / 2).toFixed(1));
+        pillBg.setAttribute("y", pillTop.toFixed(1));
+        pillBg.setAttribute("width", pillW.toFixed(1));
+        pillBg.setAttribute("height", pillH.toFixed(1));
+        break;
+      }
+      fontSize -= 2;
     }
   }
 

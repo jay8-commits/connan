@@ -577,6 +577,7 @@ object JsonSanitizer {
             .ifBlank { obj.optString("svg_markup", "") }
             .ifBlank { obj.optString("svg", "") }
         val sanitizedCustomSvg = sanitizeCustomSvg(rawCustomSvg)
+        val speaker = obj.optString("speaker", "").trim()
 
         return SceneScript(
             sceneId = sceneId,
@@ -624,7 +625,8 @@ object JsonSanitizer {
             lightingState = lightingState,
             hudUnit = hudUnit,
             sfxCues = sfxCues,
-            customSvg = sanitizedCustomSvg
+            customSvg = sanitizedCustomSvg,
+            speaker = speaker
         )
     }
 

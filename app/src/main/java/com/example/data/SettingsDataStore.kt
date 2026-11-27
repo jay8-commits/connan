@@ -33,6 +33,7 @@ class SettingsDataStore(private val context: Context) {
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         val ELEVENLABS_KEYS_JSON = stringPreferencesKey("elevenlabs_keys_json")
         val SELECTED_VOICE_ID = stringPreferencesKey("selected_voice_id")
+        val SECONDARY_VOICE_ID = stringPreferencesKey("secondary_voice_id")
         val GROQ_API_KEY = stringPreferencesKey("groq_api_key")
         val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
@@ -88,6 +89,7 @@ class SettingsDataStore(private val context: Context) {
             activePromptId = activeId,
             elevenLabsKeys = parseElevenLabsKeys(prefs[Keys.ELEVENLABS_KEYS_JSON]),
             selectedVoiceId = cleanCredential(prefs[Keys.SELECTED_VOICE_ID]).ifBlank { "N2IVS1w4EtoT3dr4eOWO" },
+            secondaryVoiceId = cleanCredential(prefs[Keys.SECONDARY_VOICE_ID]),
             ttsBaseUrl = cleanCredential(prefs[Keys.TTS_BASE_URL]).ifBlank { "https://api.elevenlabs.io" },
             ttsModelId = cleanCredential(prefs[Keys.TTS_MODEL_ID]).ifBlank { "eleven_v4" },
             llmBaseUrl = universalBaseUrl,
@@ -193,6 +195,13 @@ class SettingsDataStore(private val context: Context) {
         }
     }
 
+    suspend fun setSecondaryVoiceId(voiceId: String) {
+        val clean = cleanCredential(voiceId)
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.SECONDARY_VOICE_ID] = clean
+        }
+    }
+
     suspend fun addElevenLabsKey(rawKey: String) {
         val clean = cleanCredential(rawKey)
         if (clean.isEmpty()) return
@@ -232,6 +241,7 @@ class SettingsDataStore(private val context: Context) {
         ttsBaseUrl: String = "https://api.elevenlabs.io",
         ttsModelId: String = "eleven_v4",
         selectedVoiceId: String? = null,
+        secondaryVoiceId: String? = null,
         aiHordeKey: String = "0000000000",
         narrationSpeed: Float? = null,
         useAiHorde: Boolean? = null
@@ -255,6 +265,9 @@ class SettingsDataStore(private val context: Context) {
             prefs[Keys.TTS_MODEL_ID] = cleanTtsModel
             if (selectedVoiceId != null) {
                 prefs[Keys.SELECTED_VOICE_ID] = cleanCredential(selectedVoiceId).ifBlank { "N2IVS1w4EtoT3dr4eOWO" }
+            }
+            if (secondaryVoiceId != null) {
+                prefs[Keys.SECONDARY_VOICE_ID] = cleanCredential(secondaryVoiceId)
             }
             prefs[Keys.AI_HORDE_KEY] = cleanHorde
             if (useAiHorde != null) {

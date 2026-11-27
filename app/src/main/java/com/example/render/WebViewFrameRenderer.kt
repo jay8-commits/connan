@@ -51,13 +51,19 @@ class WebViewFrameRenderer private constructor(
             return "if(window.setSceneTimings){window.setSceneTimings([$formatted]);}"
         }
 
+        fun buildSetAspectRatioScript(ratioKey: String): String {
+            val safeRatio = ratioKey.trim().replace("'", "").replace("\"", "")
+            return "if(typeof window.setAspectRatio==='function'){window.setAspectRatio('$safeRatio');}"
+        }
+
         @SuppressLint("SetJavaScriptEnabled")
         suspend fun create(
             context: Context,
             htmlDocument: String,
             width: Int = 1080,
             height: Int = 1920,
-            sceneDurationsSec: List<Double> = emptyList()
+            sceneDurationsSec: List<Double> = emptyList(),
+            aspectRatioKey: String = ""
         ): WebViewFrameRenderer = withContext(Dispatchers.Main.immediate) {
             if (!slowWholeDocEnabled) {
                 runCatching { WebView.enableSlowWholeDocumentDraw() }
@@ -65,7 +71,7 @@ class WebViewFrameRenderer private constructor(
             }
 
             val renderer = WebViewFrameRenderer(width, height)
-            renderer.initializeOnMain(context, htmlDocument, sceneDurationsSec)
+            renderer.initializeOnMain(context, htmlDocument, sceneDurationsSec, aspectRatioKey)
             renderer
         }
     }
@@ -81,7 +87,8 @@ class WebViewFrameRenderer private constructor(
     private suspend fun initializeOnMain(
         context: Context,
         htmlDocument: String,
-        sceneDurationsSec: List<Double> = emptyList()
+        sceneDurationsSec: List<Double> = emptyList(),
+        aspectRatioKey: String = ""
     ) {
         val pageFinished = CompletableDeferred<Unit>()
 
@@ -142,9 +149,20 @@ class WebViewFrameRenderer private constructor(
         }
         layoutWebView(wv)
         awaitReadyFlag(wv)
+        if (aspectRatioKey.isNotBlank()) {
+            evaluateAspectRatioOnWebView(wv, aspectRatioKey)
+        }
         if (sceneDurationsSec.isNotEmpty()) {
             evaluateSceneTimingsOnWebView(wv, sceneDurationsSec)
         }
+        awaitVisualCommit(wv)
+    }
+
+    suspend fun setAspectRatio(ratioKey: String) = withContext(Dispatchers.Main.immediate) {
+        val wv = webView ?: return@withContext
+        if (ratioKey.isBlank()) return@withContext
+        evaluateAspectRatioOnWebView(wv, ratioKey)
+        wv.invalidate()
         awaitVisualCommit(wv)
     }
 
@@ -154,6 +172,15 @@ class WebViewFrameRenderer private constructor(
         evaluateSceneTimingsOnWebView(wv, durationsSec)
         wv.invalidate()
         awaitVisualCommit(wv)
+    }
+
+    private suspend fun evaluateAspectRatioOnWebView(wv: WebView, ratioKey: String) {
+        val js = buildSetAspectRatioScript(ratioKey)
+        suspendCancellableCoroutine<Unit> { cont ->
+            wv.evaluateJavascript(js) {
+                if (cont.isActive) cont.resume(Unit)
+            }
+        }
     }
 
     private suspend fun evaluateSceneTimingsOnWebView(wv: WebView, durationsSec: List<Double>) {

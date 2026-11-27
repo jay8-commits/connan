@@ -153,6 +153,7 @@ fun SettingsScreen(
     var ttsModelId by remember { mutableStateOf(settings.effectiveTtsModelId) }
     var ttsModelDropdownExpanded by remember { mutableStateOf(false) }
     var voiceIdInput by remember { mutableStateOf(settings.effectiveVoiceId) }
+    var secondaryVoiceIdInput by remember { mutableStateOf(settings.effectiveSecondaryVoiceId) }
     var voiceDropdownExpanded by remember { mutableStateOf(false) }
 
     var llmBaseUrl by remember { mutableStateOf(settings.effectiveLlmBaseUrl) }
@@ -172,6 +173,7 @@ fun SettingsScreen(
         ttsBaseUrl = settings.effectiveTtsBaseUrl
         ttsModelId = settings.effectiveTtsModelId
         voiceIdInput = settings.effectiveVoiceId
+        secondaryVoiceIdInput = settings.effectiveSecondaryVoiceId
         llmBaseUrl = settings.effectiveLlmBaseUrl
         llmApiKey = settings.effectiveLlmApiKey
         selectedModelId = settings.effectiveSelectedModelId
@@ -748,6 +750,7 @@ fun SettingsScreen(
                                 ttsBaseUrl = ttsBaseUrl,
                                 ttsModelId = ttsModelId,
                                 selectedVoiceId = voiceIdInput,
+                                secondaryVoiceId = secondaryVoiceIdInput,
                                 aiHordeKey = aiHordeKey.ifBlank { "0000000000" },
                                 narrationSpeed = narrationSpeed,
                                 useAiHorde = if (scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT) null else useAiHorde
@@ -1125,7 +1128,7 @@ fun SettingsScreen(
                                 voiceIdInput = clean
                                 viewModel.selectVoiceId(clean)
                             },
-                            label = { Text("Voice ID") },
+                            label = { Text("Primary Voice ID (Matalinong Daga)") },
                             placeholder = { Text("N2IVS1w4EtoT3dr4eOWO") },
                             singleLine = true,
                             modifier = Modifier
@@ -1149,6 +1152,22 @@ fun SettingsScreen(
                             colors = studioTextFieldColors()
                         )
                     }
+
+                    OutlinedTextField(
+                        value = secondaryVoiceIdInput,
+                        onValueChange = { raw ->
+                            val clean = cleanInput(raw)
+                            secondaryVoiceIdInput = clean
+                            viewModel.setSecondaryVoiceId(clean)
+                        },
+                        label = { Text("Secondary Voice ID (Character 2: Si Pusa — Optional)") },
+                        placeholder = { Text("Optional Voice ID used when scene.speaker == \"cat\"") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_secondary_voice_id_input"),
+                        colors = studioTextFieldColors()
+                    )
 
                     if (settings.elevenLabsKeys.isEmpty()) {
                         Surface(

@@ -105,7 +105,7 @@ object WorldFxAndCaptionRenderer {
         fallbackNarration: String,
         currentMs: Double
     ) {
-        val u = w / 1080f
+        val u = minOf(w, h) / 1080f
         val sanitizedTimings = KaraokeCaptionRenderer.sanitizeCaptionWordTimings(wordTimings)
         val words = if (sanitizedTimings.isNotEmpty()) {
             sanitizedTimings.map { it.copy(word = it.word.uppercase()) }
@@ -115,7 +115,7 @@ object WorldFxAndCaptionRenderer {
         }
         if (words.isEmpty()) return
 
-        // Group words into 1–2 punchy uppercase words for crisp 9:16 readability
+        // Group words into 1–2 punchy uppercase words for crisp readability
         val activeWordIdx = words.indexOfFirst { currentMs >= it.startMs && currentMs <= it.endMs }
             .let { if (it == -1) words.indexOfLast { w -> currentMs >= w.startMs }.coerceAtLeast(0) else it }
 
@@ -125,8 +125,23 @@ object WorldFxAndCaptionRenderer {
         val endIdx = (startIdx + chunkSize).coerceAtMost(words.size)
         val visibleWords = words.subList(startIdx, endIdx)
 
-        val captionCenterY = h * 0.74f
-        val textSizePx = 88f * u
+        val measurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val layout = KaraokeCaptionRenderer.fitCaptionLayout(
+            words = visibleWords,
+            canvasWidthPx = w,
+            canvasHeightPx = h,
+            measureTextWidth = { text, fontPx ->
+                measurePaint.textSize = fontPx
+                measurePaint.measureText(text)
+            }
+        )
+        if (layout.lines.isEmpty()) return
+
+        val textSizePx = layout.fontSizePx
+        val lineHeightPx = layout.lineHeightPx
+        val captionCenterY = if (h > w) h * 0.78f else h * 0.84f
 
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx
@@ -142,49 +157,76 @@ object WorldFxAndCaptionRenderer {
             textAlign = Paint.Align.LEFT
         }
 
-        // Measure total line width
+        val totalBlockH = layout.lines.size * lineHeightPx
+        val padH = 24f * u
+        val padV = 12f * u
+        val pillWidth = (layout.maxLineWidthPx + padH * 2f).coerceAtMost(w * 0.90f)
+        val pillLeft = (w - pillWidth) * 0.5f
+        val pillTop = captionCenterY - totalBlockH * 0.5f - padV
+        val pillBottom = captionCenterY + totalBlockH * 0.5f + padV
+        val pillRect = RectF(pillLeft, pillTop, pillLeft + pillWidth, pillBottom)
+
+        val pillFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (style == AnimationStyle.STICKMAN_WHITEBOARD) 0xE6FAF6EE.toInt() else 0xC8080B14.toInt()
+        }
+        val pillBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (style == AnimationStyle.STICKMAN_WHITEBOARD) 0x44111827 else 0x44FFFFFF
+            setStyle(Paint.Style.STROKE)
+            strokeWidth = 2f * u
+        }
+        canvas.drawRoundRect(pillRect, 18f * u, 18f * u, pillFill)
+        canvas.drawRoundRect(pillRect, 18f * u, 18f * u, pillBorder)
+
         val spaceW = fillPaint.measureText(" ")
-        val wordWidths = visibleWords.map { fillPaint.measureText(it.word) }
-        val totalW = wordWidths.sum() + spaceW * (visibleWords.size - 1).coerceAtLeast(0)
-        val startX = (w - totalW) * 0.5f
+        var globalWordOffset = 0
+        val firstBaselineY = captionCenterY - (totalBlockH * 0.5f) + textSizePx * 0.88f
 
-        var cursorX = startX
-        visibleWords.forEachIndexed { localIdx, wt ->
-            val globalIdx = startIdx + localIdx
-            val isActive = globalIdx == activeWordIdx
-            val isDanger = isDangerWord(wt.word)
-            val isKeyword = isEmphasizedWord(wt.word)
+        layout.lines.forEachIndexed { lineIdx, line ->
+            val baselineY = firstBaselineY + lineIdx * lineHeightPx
+            val wordWidths = line.words.map { fillPaint.measureText(it.word) }
+            val totalLineW = wordWidths.sum() + spaceW * (line.words.size - 1).coerceAtLeast(0)
+            var cursorX = (w - totalLineW) * 0.5f
 
-            // 0.12s spring scale-pop (1.20x -> 1.0x) on the currently spoken word
-            val popScale = if (isActive) {
-                val elapsedSec = ((currentMs - wt.startMs) / 1000.0).toFloat().coerceAtLeast(0f)
-                val popFrac = (elapsedSec / 0.12f).coerceIn(0f, 1f)
-                1.20f - 0.20f * Easing.cubicBezier(0.16f, 1f, 0.3f, 1f, popFrac)
-            } else 1.0f
+            line.words.forEachIndexed { localIdx, wt ->
+                val globalIdx = startIdx + globalWordOffset
+                val isActive = globalIdx == activeWordIdx ||
+                    (visibleWords.size == 1 && line.words.size > 1 && globalWordOffset == 0)
+                val isDanger = isDangerWord(wt.word)
+                val isKeyword = isEmphasizedWord(wt.word)
 
-            canvas.save()
-            val wordW = wordWidths[localIdx]
-            canvas.scale(popScale, popScale, cursorX + wordW * 0.5f, captionCenterY - textSizePx * 0.3f)
+                val popScale = if (isActive) {
+                    val elapsedSec = ((currentMs - wt.startMs) / 1000.0).toFloat().coerceAtLeast(0f)
+                    val popFrac = (elapsedSec / 0.12f).coerceIn(0f, 1f)
+                    1.15f - 0.15f * Easing.cubicBezier(0.16f, 1f, 0.3f, 1f, popFrac)
+                } else 1.0f
 
-            val dropPaint = Paint(strokePaint).apply {
-                color = 0xAA000000.toInt()
-                strokeWidth = 18f * u
+                canvas.save()
+                val wordW = wordWidths[localIdx]
+                canvas.scale(popScale, popScale, cursorX + wordW * 0.5f, baselineY - textSizePx * 0.3f)
+
+                val dropPaint = Paint(strokePaint).apply {
+                    color = 0xAA000000.toInt()
+                    strokeWidth = maxOf(6f * u, textSizePx * 0.25f)
+                }
+                canvas.drawText(wt.word, cursorX, baselineY + 4f * u, dropPaint)
+
+                strokePaint.color = if (style == AnimationStyle.STICKMAN_WHITEBOARD) 0xFFFAF6EE.toInt() else 0xFF0B0E14.toInt()
+                strokePaint.strokeWidth = maxOf(5f * u, textSizePx * 0.23f)
+                fillPaint.color = when {
+                    isDanger -> 0xFFFF453A.toInt()
+                    isKeyword || isActive -> 0xFFFFD60A.toInt()
+                    style == AnimationStyle.STICKMAN_WHITEBOARD -> 0xFF111827.toInt()
+                    else -> Color.WHITE
+                }
+                canvas.drawText(wt.word, cursorX, baselineY, strokePaint)
+                canvas.drawText(wt.word, cursorX, baselineY, fillPaint)
+
+                canvas.restore()
+                cursorX += wordW + spaceW
+                if (visibleWords.size > 1) {
+                    globalWordOffset++
+                }
             }
-            canvas.drawText(wt.word, cursorX, captionCenterY + 7f * u, dropPaint)
-
-            strokePaint.color = if (style == AnimationStyle.STICKMAN_WHITEBOARD) 0xFFFAF6EE.toInt() else 0xFF0B0E14.toInt()
-            strokePaint.strokeWidth = 17f * u
-            fillPaint.color = when {
-                isDanger -> 0xFFFF453A.toInt()
-                isKeyword || isActive -> 0xFFFFD60A.toInt()
-                style == AnimationStyle.STICKMAN_WHITEBOARD -> 0xFF111827.toInt()
-                else -> Color.WHITE
-            }
-            canvas.drawText(wt.word, cursorX, captionCenterY, strokePaint)
-            canvas.drawText(wt.word, cursorX, captionCenterY, fillPaint)
-
-            canvas.restore()
-            cursorX += wordW + spaceW
         }
     }
 

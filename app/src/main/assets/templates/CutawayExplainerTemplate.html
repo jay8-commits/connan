@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=1080, height=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta id="vp-meta" name="viewport" content="width=1080, height=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>ToonForge 2D Cutaway & System Explainer</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -23,14 +23,14 @@
   .cap-text {
     font-family: 'Montserrat', 'Roboto Black', 'Arial Black', sans-serif;
     font-weight: 900;
-    font-size: 86px;
-    letter-spacing: 1px;
+    font-size: 44px;
+    letter-spacing: 0.6px;
     paint-order: stroke fill;
     stroke: #0B0E14;
-    stroke-width: 19px;
+    stroke-width: 10px;
     stroke-linejoin: round;
     stroke-linecap: round;
-    filter: drop-shadow(0px 9px 12px rgba(0, 0, 0, 0.85));
+    filter: drop-shadow(0px 5px 8px rgba(0, 0, 0, 0.85));
   }
   .title-card-txt {
     font-family: 'Montserrat', 'Roboto', Arial, sans-serif;
@@ -110,7 +110,7 @@
       </feMerge>
     </filter>
     <clipPath id="stage-clip">
-      <rect x="0" y="0" width="1080" height="1920" />
+      <rect id="stage-clip-rect" x="0" y="0" width="1080" height="1920" />
     </clipPath>
     <clipPath id="tank-left-clip">
       <rect x="118" y="998" width="334" height="292" rx="18" />
@@ -125,12 +125,14 @@
       <image id="ai-backdrop-img" x="-54" y="-96" width="1188" height="2112" preserveAspectRatio="xMidYMid slice" opacity="0" />
       <g id="sky-layer"></g>
       <g id="weather-layer"></g>
-      <g id="surface-layer"></g>
-      <g id="underground-layer"></g>
+      <g id="cutaway-content-group">
+        <g id="surface-layer"></g>
+        <g id="underground-layer"></g>
+        <g id="flow-engine-layer"></g>
+        <g id="pointer-layer"></g>
+        <g id="cast-layer"></g>
+      </g>
       <g id="custom-svg-layer"></g>
-      <g id="flow-engine-layer"></g>
-      <g id="pointer-layer"></g>
-      <g id="cast-layer"></g>
     </g>
 
     <!-- HUD Telemetry, Ripped-Paper Banners & Editorial Hook Overlay -->
@@ -138,12 +140,12 @@
     <g id="editorial-hook-layer"></g>
 
     <!-- Cinema Post-Processing: Directional Rim Light + Soft Radial Vignette + 0.035 Film Grain -->
-    <rect x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
+    <rect id="rim-light-rect" x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
     <rect id="vignette-rect" x="0" y="0" width="1080" height="1920" fill="url(#vignette-grad)" pointer-events="none" />
     <rect id="cinema-grain-rect" x="0" y="0" width="1080" height="1920" fill="#FFFFFF" filter="url(#cinema-grain)" opacity="0.035" pointer-events="none" />
 
-    <!-- Safe Zone Captions at y = 1420 -->
-    <g id="caption-layer" transform="translate(540, 1420)"></g>
+    <!-- Safe Zone Responsive Captions -->
+    <g id="caption-layer" transform="translate(540, 1498)"></g>
   </g>
 </svg>
 
@@ -157,10 +159,18 @@
   const DATA = dataEl ? JSON.parse(dataEl.textContent) : { scenes: [], totalDurationSec: 5 };
   const SCENES = DATA.scenes || [];
 
+  let STAGE_W = DATA.aspectRatio === "16:9" ? 1920 : 1080;
+  let STAGE_H = DATA.aspectRatio === "16:9" ? 1080 : 1920;
+  let IS_WIDE = STAGE_W > STAGE_H;
+
+  const elStage = document.getElementById("stage");
+  const elVpMeta = document.getElementById("vp-meta");
+  const elStageClipRect = document.getElementById("stage-clip-rect");
   const elCamera = document.getElementById("camera-root");
   const elBackdropImg = document.getElementById("ai-backdrop-img");
   const elSky = document.getElementById("sky-layer");
   const elWeather = document.getElementById("weather-layer");
+  const elCutawayGroup = document.getElementById("cutaway-content-group");
   const elSurface = document.getElementById("surface-layer");
   const elUnderground = document.getElementById("underground-layer");
   const elCustomSvg = document.getElementById("custom-svg-layer");
@@ -170,8 +180,65 @@
   const elHud = document.getElementById("kinetic-hud-layer");
   const elHook = document.getElementById("editorial-hook-layer");
   const elCaption = document.getElementById("caption-layer");
+  const elRimLight = document.getElementById("rim-light-rect");
+  const elVignette = document.getElementById("vignette-rect");
+  const elGrain = document.getElementById("cinema-grain-rect");
 
   let lastSceneIdx = -1;
+
+  function applyStageDimensions() {
+    IS_WIDE = STAGE_W > STAGE_H;
+    if (elVpMeta) {
+      elVpMeta.setAttribute("content", "width=" + STAGE_W + ", height=" + STAGE_H + ", initial-scale=1.0, maximum-scale=1.0, user-scalable=no");
+    }
+    if (elStage) elStage.setAttribute("viewBox", "0 0 " + STAGE_W + " " + STAGE_H);
+    if (elStageClipRect) {
+      elStageClipRect.setAttribute("width", STAGE_W);
+      elStageClipRect.setAttribute("height", STAGE_H);
+    }
+    if (elBackdropImg) {
+      const padX = Math.round(STAGE_W * 0.05);
+      const padY = Math.round(STAGE_H * 0.05);
+      elBackdropImg.setAttribute("x", -padX);
+      elBackdropImg.setAttribute("y", -padY);
+      elBackdropImg.setAttribute("width", STAGE_W + padX * 2);
+      elBackdropImg.setAttribute("height", STAGE_H + padY * 2);
+    }
+    if (elCutawayGroup) {
+      if (IS_WIDE) {
+        elCutawayGroup.setAttribute("transform", "translate(960, 460) scale(0.72) translate(-540, -900)");
+      } else {
+        elCutawayGroup.removeAttribute("transform");
+      }
+    }
+    [elRimLight, elVignette, elGrain].forEach(function(r) {
+      if (r) {
+        r.setAttribute("width", STAGE_W);
+        r.setAttribute("height", STAGE_H);
+      }
+    });
+    const capY = IS_WIDE ? Math.round(STAGE_H * 0.84) : Math.round(STAGE_H * 0.78);
+    if (elCaption) elCaption.setAttribute("transform", "translate(" + (STAGE_W / 2) + ", " + capY + ")");
+  }
+
+  applyStageDimensions();
+
+  window.setAspectRatio = function(ratio) {
+    const norm = String(ratio || "").trim();
+    if (norm === "16:9") {
+      STAGE_W = 1920;
+      STAGE_H = 1080;
+    } else {
+      STAGE_W = 1080;
+      STAGE_H = 1920;
+    }
+    applyStageDimensions();
+    lastSceneIdx = -1;
+    if (SCENES.length > 0 && typeof window.seekToTime === "function") {
+      window.seekToTime(window.__toonforgeCurrentSec || 0);
+    }
+    return STAGE_W + "x" + STAGE_H;
+  };
 
   function svgEl(tag, attrs, parent) {
     const node = document.createElementNS(NS, tag);
@@ -226,8 +293,8 @@
       const imported = document.importNode(root, true);
       imported.setAttribute("x", "0");
       imported.setAttribute("y", "0");
-      imported.setAttribute("width", "1080");
-      imported.setAttribute("height", "1920");
+      imported.setAttribute("width", String(STAGE_W));
+      imported.setAttribute("height", String(STAGE_H));
       if (!imported.getAttribute("viewBox")) {
         imported.setAttribute("viewBox", "0 0 1080 1920");
       }
@@ -257,7 +324,7 @@
     if (hasCustomSvg) {
       elBackdropImg.setAttribute("opacity", "0");
       elBackdropImg.removeAttribute("href");
-      svgEl("rect", { x: -120, y: -120, width: 1320, height: 2160, fill: "#070B12" }, elSky);
+      svgEl("rect", { x: -200, y: -200, width: STAGE_W + 400, height: STAGE_H + 400, fill: "#070B12" }, elSky);
       return;
     }
 
@@ -273,8 +340,8 @@
     const lighting = resolveLighting(scene);
     const skyFill = lighting === "NIGHT" ? "url(#sky-night)" : (lighting === "RAIN_STORM" ? "url(#sky-storm)" : "url(#sky-sunny)");
 
-    // 1. Sky backdrop (y: -120..950) without generic city skyline blocks
-    svgEl("rect", { x: -120, y: -120, width: 1320, height: 1080, fill: skyFill }, elSky);
+    // 1. Sky backdrop spanning full stage width
+    svgEl("rect", { x: -240, y: -240, width: STAGE_W + 480, height: Math.round(STAGE_H * 0.65) + 240, fill: skyFill }, elSky);
 
     // 2. Surface Rooftop House & Solar / System Module (y: 430..940) with 2.5px #141821 outlines
     // Main Architectural Cross-Section Building
@@ -305,9 +372,9 @@
     // Mechanical Valve Wheel
     svgEl("circle", { cx: 842, cy: 768, r: 40, fill: "#F59E0B", class: "cut-outline" }, elSurface);
 
-    // 3. Underground Soil Cross-Section & Transparent Cutaway Chambers (y: 935..1400)
-    svgEl("rect", { x: -120, y: 935, width: 1320, height: 52, fill: "#16A34A", class: "cut-outline" }, elUnderground);
-    svgEl("rect", { x: -120, y: 965, width: 1320, height: 470, fill: "url(#soil-strata)", class: "cut-outline" }, elUnderground);
+    // 3. Underground Soil Cross-Section & Transparent Cutaway Chambers (wide enough for 16:9 too)
+    svgEl("rect", { x: -1200, y: 935, width: 3480, height: 52, fill: "#16A34A", class: "cut-outline" }, elUnderground);
+    svgEl("rect", { x: -1200, y: 965, width: 3480, height: 470, fill: "url(#soil-strata)", class: "cut-outline" }, elUnderground);
 
     // Soil pebbles & strata texture
     for (let p = 0; p < 14; p++) {
@@ -368,18 +435,20 @@
       stroke: "#FACC15", "stroke-width": "6", "stroke-linejoin": "round", fill: "none"
     }, elSurface);
 
-    // Bottom stage ground foundation (y: 1380..1920)
-    svgEl("rect", { x: -120, y: 1380, width: 1320, height: 600, fill: "#090D16" }, elUnderground);
+    // Bottom stage ground foundation (wide & tall enough for 16:9 and 9:16)
+    svgEl("rect", { x: -1200, y: 1380, width: 3480, height: 1200, fill: "#090D16" }, elUnderground);
   }
 
   function renderWeather(scene, tSec) {
     clearNode(elWeather);
     if (scene.customSvg || scene.backdropUri) return;
     const lighting = resolveLighting(scene);
+    const sunX = Math.round(STAGE_W * 0.82);
+    const sunY = IS_WIDE ? 210 : 290;
 
     if (lighting === "SUNNY") {
       // Glowing Sun with deterministic rotating rays
-      const sunG = svgEl("g", { transform: "translate(880, 290)" }, elWeather);
+      const sunG = svgEl("g", { transform: "translate(" + sunX + ", " + sunY + ")" }, elWeather);
       svgEl("circle", { cx: 0, cy: 0, r: 68, fill: "#FEF08A", opacity: "0.28" }, sunG);
       svgEl("circle", { cx: 0, cy: 0, r: 44, fill: "#FACC15", class: "cut-outline" }, sunG);
       for (let i = 0; i < 8; i++) {
@@ -391,35 +460,38 @@
         }, sunG);
       }
       // Drifting crisp cloud
-      const cx = ((tSec * 24) % 1280) - 100;
+      const cx = ((tSec * 24) % (STAGE_W + 200)) - 100;
+      const cloudY = IS_WIDE ? 225 : 310;
       svgEl("path", {
-        d: "M" + cx + ",310 Q" + (cx + 35) + ",265 " + (cx + 85) + ",285 Q" + (cx + 125) + ",255 " + (cx + 165) + ",290 Q" + (cx + 205) + ",295 " + (cx + 195) + ",330 L" + cx + ",330 Z",
+        d: "M" + cx + "," + cloudY + " Q" + (cx + 35) + "," + (cloudY - 45) + " " + (cx + 85) + "," + (cloudY - 25) + " Q" + (cx + 125) + "," + (cloudY - 55) + " " + (cx + 165) + "," + (cloudY - 20) + " Q" + (cx + 205) + "," + (cloudY - 15) + " " + (cx + 195) + "," + (cloudY + 20) + " L" + cx + "," + (cloudY + 20) + " Z",
         fill: "#FFFFFF", opacity: "0.86", class: "cut-outline"
       }, elWeather);
     } else if (lighting === "NIGHT") {
       // Crescent Moon & Twinkling Stars
       for (let s = 0; s < 14; s++) {
-        const sx = 90 + (s * 83) % 920;
-        const sy = 160 + (s * 47) % 240;
+        const sx = 90 + (s * 127) % (STAGE_W - 180);
+        const sy = (IS_WIDE ? 110 : 160) + (s * 47) % 210;
         const alpha = 0.4 + 0.5 * Math.abs(Math.sin(tSec * 2.1 + s));
         svgEl("circle", { cx: sx, cy: sy, r: 2.5 + (s % 2), fill: "#FEF9C3", opacity: alpha.toFixed(2) }, elWeather);
       }
-      svgEl("circle", { cx: 885, cy: 280, r: 42, fill: "#FEF08A", class: "cut-outline" }, elWeather);
-      svgEl("circle", { cx: 904, cy: 268, r: 36, fill: "#0F172A" }, elWeather);
+      svgEl("circle", { cx: sunX, cy: sunY - 10, r: 42, fill: "#FEF08A", class: "cut-outline" }, elWeather);
+      svgEl("circle", { cx: sunX + 19, cy: sunY - 22, r: 36, fill: "#0F172A" }, elWeather);
     } else if (lighting === "RAIN_STORM") {
-      // Storm Clouds + Deterministic Diagonal Rain Streaks
+      const c1x = Math.round(STAGE_W * 0.12);
+      const c2x = Math.round(STAGE_W * 0.62);
+      const cy = IS_WIDE ? 220 : 305;
       svgEl("path", {
-        d: "M120,305 Q175,245 255,270 Q320,230 390,275 Q445,280 430,325 L110,325 Z",
+        d: "M" + c1x + "," + cy + " Q" + (c1x + 55) + "," + (cy - 60) + " " + (c1x + 135) + "," + (cy - 35) + " Q" + (c1x + 200) + "," + (cy - 75) + " " + (c1x + 270) + "," + (cy - 30) + " Q" + (c1x + 325) + "," + (cy - 25) + " " + (c1x + 310) + "," + (cy + 20) + " L" + (c1x - 10) + "," + (cy + 20) + " Z",
         fill: "#475569", class: "cut-outline"
       }, elWeather);
       svgEl("path", {
-        d: "M640,295 Q700,235 785,260 Q860,220 925,270 Q975,280 960,320 L630,320 Z",
+        d: "M" + c2x + "," + (cy - 10) + " Q" + (c2x + 60) + "," + (cy - 70) + " " + (c2x + 145) + "," + (cy - 45) + " Q" + (c2x + 220) + "," + (cy - 85) + " " + (c2x + 285) + "," + (cy - 35) + " Q" + (c2x + 335) + "," + (cy - 25) + " " + (c2x + 320) + "," + (cy + 15) + " L" + (c2x - 10) + "," + (cy + 15) + " Z",
         fill: "#334155", class: "cut-outline"
       }, elWeather);
       for (let r = 0; r < 18; r++) {
         const frac = (tSec * 1.9 + r * 0.17) % 1;
-        const rx = 110 + (r * 54) % 880 - frac * 65;
-        const ry = 330 + frac * 590;
+        const rx = 110 + (r * 97) % (STAGE_W - 220) - frac * 65;
+        const ry = (IS_WIDE ? 240 : 330) + frac * Math.round(STAGE_H * 0.34);
         svgEl("line", {
           x1: rx, y1: ry, x2: rx - 14, y2: ry + 26,
           stroke: "#7DD3FC", "stroke-width": "3", "stroke-linecap": "round", opacity: "0.62"
@@ -574,6 +646,8 @@
     clearNode(elHud);
     clearNode(elHook);
 
+    const cx = STAGE_W / 2;
+
     // 1. Ripped-paper / Tech Top Status Banner with ✓ / ✕ Pills
     const bannerSpring = springOvershoot(clamp(sceneElapsed / 0.45, 0, 1));
     const pill = scene.statusPill || "NONE";
@@ -584,14 +658,13 @@
       const pillGlyph = isProblem ? "✕" : (isGood ? "✓" : "★");
       const accent = isProblem ? "#FF453A" : (isGood ? "#2DD4BF" : "#FFD60A");
       const displayStr = (pill !== "NONE" ? pillGlyph + " " + pill + (bannerText ? " • " : "") : "") + bannerText;
-      const bw = Math.min(930, Math.max(400, displayStr.length * 23 + 96));
+      const bw = Math.min(Math.round(STAGE_W * 0.85), Math.max(400, displayStr.length * 23 + 96));
 
       const bg = svgEl("g", {
-        transform: "translate(540, 165) scale(" + bannerSpring.toFixed(4) + ")",
+        transform: "translate(" + cx + ", " + (IS_WIDE ? 86 : 165) + ") scale(" + (bannerSpring * (IS_WIDE ? 0.88 : 1.0)).toFixed(4) + ")",
         opacity: clamp(sceneElapsed / 0.20, 0, 1),
         class: "card-shadow"
       }, elHud);
-      // Ripped-paper style notched banner silhouette
       const hw = bw / 2;
       svgEl("polygon", {
         points: (-hw) + ",-40 " + hw + ",-40 " + (hw - 12) + ",-12 " + hw + ",14 " + (hw - 8) + ",40 " + (-hw) + ",40 " + (-hw + 10) + ",8 " + (-hw) + ",-16",
@@ -603,7 +676,7 @@
       txt.textContent = displayStr.slice(0, 34);
     }
 
-    // 2. Live Telemetry HUD Card (W, V, PPM, %, ₱) at y = 1185..1310 (outside face/cutaway overlap)
+    // 2. Live Telemetry HUD Card (W, V, PPM, %, ₱)
     const prog = easeOutExpo(clamp(sceneElapsed / Math.min(1.8, sceneDur * 0.72), 0, 1));
     const fromVal = Number(scene.hudFrom || 0);
     const toVal = Number(scene.hudTo != null ? scene.hudTo : 100);
@@ -613,8 +686,10 @@
     const fillFrac = unit === "%" ? clamp(curVal / 100, 0.04, 1) : clamp(curVal / maxRef, 0.06, 1);
     const subPulse = (sceneElapsed % 2.5) < 0.35 ? 1 + 0.03 * Math.sin(((sceneElapsed % 2.5) / 0.35) * Math.PI) : 1;
 
+    const hudY = IS_WIDE ? 715 : 1285;
+    const hudScale = springOvershoot(clamp(sceneElapsed / 0.5, 0, 1)) * subPulse * (IS_WIDE ? 0.86 : 1.0);
     const hudG = svgEl("g", {
-      transform: "translate(540, 1285) scale(" + (springOvershoot(clamp(sceneElapsed / 0.5, 0, 1)) * subPulse).toFixed(4) + ")",
+      transform: "translate(" + cx + ", " + hudY + ") scale(" + hudScale.toFixed(4) + ")",
       class: "card-shadow"
     }, elHud);
     svgEl("rect", {
@@ -643,9 +718,10 @@
       const hookTitle = (SCENES[0].titleCard || SCENES[0].calloutBanner || "PAANO GUMAGANA ITO?").toUpperCase();
       const enterT = springOvershoot(clamp(tSec / 0.36, 0, 1));
       const exitOpacity = tSec > 1.45 ? clamp(1 - (tSec - 1.45) / 0.35, 0, 1) : 1;
+      const hookY = IS_WIDE ? 235 : 325;
       const hg = svgEl("g", {
         id: "editorial-hook-overlay",
-        transform: "translate(540, 325) scale(" + enterT.toFixed(4) + ")",
+        transform: "translate(" + cx + ", " + hookY + ") scale(" + (enterT * (IS_WIDE ? 0.88 : 1.0)).toFixed(4) + ")",
         opacity: exitOpacity.toFixed(3),
         class: "card-shadow"
       }, elHook);
@@ -685,10 +761,28 @@
     }
     scale *= subBeatZoom;
 
+    const cx = STAGE_W / 2;
+    const cy = STAGE_H / 2;
     elCamera.setAttribute(
       "transform",
-      "translate(540,960) scale(" + scale.toFixed(4) + ") translate(" + (-540 + tx).toFixed(2) + "," + (-960 + ty).toFixed(2) + ")"
+      "translate(" + cx + "," + cy + ") scale(" + scale.toFixed(4) + ") translate(" + (-cx + tx).toFixed(2) + "," + (-cy + ty).toFixed(2) + ")"
     );
+  }
+
+  function splitLongCaptionWord(word) {
+    if (!word || word.length <= 22) return [word];
+    const parts = [];
+    let i = 0;
+    while (i < word.length) {
+      const remain = word.length - i;
+      if (remain <= 18) {
+        parts.push(word.slice(i));
+        break;
+      }
+      parts.push(word.slice(i, i + 16) + "-");
+      i += 16;
+    }
+    return parts;
   }
 
   function renderViralCaptions(scene, tSec) {
@@ -701,18 +795,90 @@
       if (tSec >= captions[i].startSec) active = captions[i];
     }
 
+    const rawTokens = active.tokens || [];
+    if (rawTokens.length === 0) return;
+
+    const expandedTokens = [];
+    for (let i = 0; i < rawTokens.length; i++) {
+      const tok = rawTokens[i];
+      const pieces = splitLongCaptionWord(tok.text || "");
+      for (let p = 0; p < pieces.length; p++) {
+        expandedTokens.push({ text: pieces[p], tone: tok.tone });
+      }
+    }
+
+    const totalText = expandedTokens.map(function(t) { return t.text; }).join(" ");
+    const totalChars = totalText.length;
+    const maxSafeWidth = STAGE_W * 0.86;
+    let baseFont = IS_WIDE ? 46 : 44;
+    if (totalChars > 22) {
+      baseFont = Math.max(24, Math.round(baseFont * (22 / totalChars) * 1.18));
+    }
+
+    let lines = [expandedTokens];
+    if (expandedTokens.length >= 2 && (totalChars > 18 || totalChars * baseFont * 0.56 > maxSafeWidth)) {
+      const splitIdx = Math.ceil(expandedTokens.length / 2);
+      lines = [expandedTokens.slice(0, splitIdx), expandedTokens.slice(splitIdx)];
+    }
+
     const popElapsed = Math.max(0, tSec - active.startSec);
     const popFrac = clamp(popElapsed / 0.14, 0, 1);
-    const popScale = lerp(1.18, 1.0, springOvershoot(popFrac));
+    const popScale = lerp(1.14, 1.0, springOvershoot(popFrac));
 
     const chunkG = svgEl("g", { transform: "scale(" + popScale.toFixed(4) + ")" }, elCaption);
-    const tokens = active.tokens || [];
-    const txt = svgEl("text", { x: 0, y: 0, "text-anchor": "middle", class: "cap-text" }, chunkG);
-    for (let i = 0; i < tokens.length; i++) {
-      const tok = tokens[i];
-      const fill = tok.tone === "DANGER" ? "#FF453A" : (tok.tone === "ACCENT" ? "#FFD60A" : "#FFFFFF");
-      const span = svgEl("tspan", { fill: fill }, txt);
-      span.textContent = (i > 0 ? " " : "") + tok.text;
+    const pillBg = svgEl("rect", {
+      x: -200, y: -40, width: 400, height: 80, rx: 18,
+      fill: "#080B14", "fill-opacity": "0.82",
+      stroke: "rgba(255,255,255,0.16)", "stroke-width": "2"
+    }, chunkG);
+
+    let fontSize = baseFont;
+    let textNodes = [];
+    for (let attempt = 0; attempt < 14; attempt++) {
+      for (let n = 0; n < textNodes.length; n++) chunkG.removeChild(textNodes[n]);
+      textNodes = [];
+
+      const lineHeight = Math.round(fontSize * 1.24);
+      const startY = lines.length === 1 ? Math.round(fontSize * 0.34) : Math.round(-lineHeight * 0.18);
+      const strokeW = Math.max(5, Math.round(fontSize * 0.22));
+      let widest = 0;
+
+      for (let lIdx = 0; lIdx < lines.length; lIdx++) {
+        const lineTokens = lines[lIdx];
+        const yPos = startY + lIdx * lineHeight;
+        const txt = svgEl("text", {
+          x: 0,
+          y: yPos,
+          "text-anchor": "middle",
+          class: "cap-text",
+          style: "font-size:" + fontSize + "px;stroke-width:" + strokeW + "px;"
+        }, chunkG);
+        for (let tIdx = 0; tIdx < lineTokens.length; tIdx++) {
+          const tok = lineTokens[tIdx];
+          const fill = tok.tone === "DANGER" ? "#FF453A" : (tok.tone === "ACCENT" ? "#FFD60A" : "#FFFFFF");
+          const span = svgEl("tspan", { fill: fill }, txt);
+          span.textContent = (tIdx > 0 ? " " : "") + tok.text;
+        }
+        textNodes.push(txt);
+        const measured = typeof txt.getComputedTextLength === "function"
+          ? txt.getComputedTextLength()
+          : (lineTokens.map(function(t) { return t.text; }).join(" ").length * fontSize * 0.62);
+        if (measured > widest) widest = measured;
+      }
+
+      if (widest <= maxSafeWidth || fontSize <= 20) {
+        const padX = 28;
+        const padY = 16;
+        const pillW = Math.min(STAGE_W * 0.90, Math.max(140, widest + padX * 2));
+        const pillH = lines.length * lineHeight + padY * 2;
+        const pillTop = lines.length === 1 ? -(fontSize + padY * 0.65) : (startY - fontSize - padY * 0.45);
+        pillBg.setAttribute("x", (-pillW / 2).toFixed(1));
+        pillBg.setAttribute("y", pillTop.toFixed(1));
+        pillBg.setAttribute("width", pillW.toFixed(1));
+        pillBg.setAttribute("height", pillH.toFixed(1));
+        break;
+      }
+      fontSize -= 2;
     }
   }
 
