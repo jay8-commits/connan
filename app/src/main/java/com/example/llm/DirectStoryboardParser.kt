@@ -13,6 +13,8 @@ import com.example.model.LightingState
 import com.example.model.SceneScript
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
+import com.example.model.StoryNiche
+import com.example.model.StudioCameraSpec
 import com.example.model.WorldFx
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +69,10 @@ object DirectStoryboardParser {
         "\"storyboard\"",
         "\"scene_id\"",
         "\"tagalog_narration\"",
+        "\"narration\"",
+        "\"bgTheme\"",
+        "\"actors\"",
+        "\"aspectRatio\"",
         "\"visual_description\"",
         "\"camera_motion\"",
         "\"character_pose\"",
@@ -456,6 +462,7 @@ $normalizedSvg
         if (blocks.isEmpty()) return null
 
         val priorityMatches = listOf(
+            blocks.firstOrNull { hasTagIdOrMarker(it.openTagLower, "episode-data") && it.body.isNotEmpty() },
             blocks.firstOrNull { hasTagIdOrMarker(it.openTagLower, "storyboard-json") && it.body.isNotEmpty() },
             blocks.firstOrNull { hasTagIdOrMarker(it.openTagLower, "storyboard-data") && it.body.isNotEmpty() },
             blocks.firstOrNull {
@@ -463,7 +470,7 @@ $normalizedSvg
                     (it.body.startsWith("[") || it.body.startsWith("{"))
             },
             blocks.firstOrNull {
-                it.body.contains("\"tagalog_narration\"") &&
+                (it.body.contains("\"tagalog_narration\"") || it.body.contains("\"narration\"")) &&
                     (it.body.startsWith("[") || it.body.startsWith("{"))
             }
         )
@@ -547,10 +554,14 @@ $normalizedSvg
     ): List<SceneScript> {
         return try {
             val trimmed = stripCodeFenceIfNeeded(rawJson).trim()
+            var rootTitle = ""
+            var rootNiche: StoryNiche? = null
             val array: JSONArray = if (trimmed.startsWith("[")) {
                 JSONArray(trimmed)
             } else if (trimmed.startsWith("{")) {
                 val root = JSONObject(trimmed)
+                rootTitle = root.optString("title", "").trim()
+                rootNiche = root.optString("niche", "").trim().takeIf { it.isNotEmpty() }?.let { StoryNiche.fromRaw(it) }
                 root.optJSONArray("scenes")
                     ?: root.optJSONArray("storyboard")
                     ?: root.optJSONArray("script")
@@ -599,9 +610,11 @@ $normalizedSvg
                     .ifBlank { rawNarration.trim() }
                 if (cleanNarration.isBlank()) continue
 
-                val sceneId = obj.optInt("scene_id", parsedScenes.size + 1).let {
-                    if (it > 0) it else parsedScenes.size + 1
-                }
+                val sceneId = when {
+                    obj.has("scene_id") -> obj.optInt("scene_id", parsedScenes.size + 1)
+                    obj.has("id") -> obj.optInt("id", parsedScenes.size + 1)
+                    else -> parsedScenes.size + 1
+                }.let { if (it > 0) it else parsedScenes.size + 1 }
                 val vis = obj.optString("visual_description", "").trim()
                     .ifBlank { "Custom pasted HTML/SVG storyboard frame rendering deterministic vector animation." }
                 val bg = obj.optString("background_prompt", "").trim()
@@ -609,7 +622,8 @@ $normalizedSvg
                 val cameraMotion = CameraMotion.fromRaw(obj.optString("camera_motion", ""))
                     .let { if (it == CameraMotion.STATIC) CAMERA_MOTION_ROTATION[i % CAMERA_MOTION_ROTATION.size] else it }
                 val statusPill = StatusPill.fromRaw(obj.optString("status_pill", "NONE"))
-                val calloutBanner = obj.optString("callout_banner", "").trim()
+                val calloutText = obj.optString("callout", "").trim()
+                val calloutBanner = obj.optString("callout_banner", "").trim().ifBlank { calloutText }
                 val topicPill = obj.optString("topic_pill", "").trim()
                 val hudWidget = HudWidget.fromRaw(obj.optString("hud_widget", "NONE"))
                 val hudLabel = obj.optString("hud_label", "").trim()
@@ -641,6 +655,20 @@ $normalizedSvg
                 }
 
                 val speaker = obj.optString("speaker", "").trim()
+                val durationSec = obj.optDouble("duration", 0.0)
+                    .let { if (it > 0.2 && !it.isNaN()) it else 0.0 }
+                val bgTheme = obj.optString("bgTheme", "").trim()
+                val camObj = obj.optJSONObject("camera")
+                val cameraSpec = if (camObj != null) {
+                    StudioCameraSpec(
+                        preset = camObj.optString("preset", "push_in").trim().ifBlank { "push_in" },
+                        zoom = camObj.optDouble("zoom", 1.08).toFloat().coerceIn(0.85f, 1.6f)
+                    )
+                } else {
+                    StudioCameraSpec()
+                }
+                val actorsList = JsonSanitizer.parseActorsArray(obj.optJSONArray("actors"))
+                val fxKey = obj.optString("fx", "").trim()
 
                 parsedScenes.add(
                     SceneScript(
@@ -662,7 +690,14 @@ $normalizedSvg
                         hudToValue = hudTo,
                         hasCharacter = hasChar,
                         sfxCues = sfxCues,
-                        speaker = speaker
+                        speaker = speaker,
+                        durationSec = durationSec,
+                        bgTheme = bgTheme,
+                        cameraSpec = cameraSpec,
+                        actors = actorsList,
+                        fxKey = fxKey,
+                        episodeTitle = rootTitle,
+                        storyNiche = rootNiche ?: StoryNiche.SA_BAYANG_ITO
                     )
                 )
             }
@@ -952,7 +987,10 @@ $normalizedSvg
             return if (isRawSvg) "Custom SVG Storyboard" else "Custom HTML Storyboard"
         }
         val cleaned = if (looksLikeJsonInput(rawInput)) {
-            extractFirstJsonStringValue(rawInput, "tagalog_narration").orEmpty()
+            extractFirstJsonStringValue(rawInput, "title")
+                ?: extractFirstJsonStringValue(rawInput, "tagalog_narration")
+                ?: extractFirstJsonStringValue(rawInput, "narration")
+                ?: ""
         } else {
             rawInput.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
         }
@@ -973,13 +1011,21 @@ $normalizedSvg
             val embeddedJson = extractEmbeddedStoryboardJson(cleanedMarkup)
             if (!embeddedJson.isNullOrBlank()) {
                 val sceneCount = parseEmbeddedStoryboardJsonRelaxed(embeddedJson, AnimationStyle.ATMOSPHERIC_2D_STORY).size
-                    .let { if (it > 0) it else countKeyOccurrences(embeddedJson, "\"tagalog_narration\"") }
+                    .let {
+                        if (it > 0) it else maxOf(
+                            countKeyOccurrences(embeddedJson, "\"tagalog_narration\""),
+                            countKeyOccurrences(embeddedJson, "\"narration\"")
+                        )
+                    }
                 if (sceneCount > 0) return "$prefix • $sceneCount scene(s)"
             }
             return "$prefix • Ready"
         }
         if (looksLikeJsonInput(trimmed)) {
-            val count = countKeyOccurrences(trimmed, "\"tagalog_narration\"")
+            val count = maxOf(
+                countKeyOccurrences(trimmed, "\"tagalog_narration\""),
+                countKeyOccurrences(trimmed, "\"narration\"")
+            )
             return if (count > 0) "JSON • $count scene(s)" else "JSON Storyboard"
         }
         val chunks = splitIntoBalancedScenes(trimmed)
@@ -1272,6 +1318,12 @@ $normalizedSvg
             }
 
             if (array.length() == 0) return raw
+
+            // Preserve Studio Episode Choreography JSON untouched so root title/niche/actors/bgTheme/camera/fx pass straight to JsonSanitizer
+            val firstObj = array.optJSONObject(0)
+            if (firstObj != null && (firstObj.has("narration") || firstObj.has("bgTheme") || firstObj.has("actors"))) {
+                return candidate
+            }
 
             val enriched = JSONArray()
             for (i in 0 until array.length()) {

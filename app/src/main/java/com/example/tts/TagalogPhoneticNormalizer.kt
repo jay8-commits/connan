@@ -76,11 +76,16 @@ object TagalogPhoneticNormalizer {
             }
         }
 
-        // 2. Expand percentages: 72% -> pitumpu't dalawang porsyento
-        val percentRegex = Regex("(\\d+)\\s*%")
+        // 2. Expand percentages: 72% -> pitumpu't dalawa porsyento, 3.5% -> tatlo punto lima porsyento
+        val percentRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*%")
         text = percentRegex.replace(text) { match ->
-            val num = match.groupValues[1].toLongOrNull() ?: 0L
-            "${numberToTagalog(num)} $customPercentUnit"
+            val rawNum = match.groupValues[1]
+            val spokenNum = if (rawNum.contains('.')) {
+                decimalStringToTagalog(rawNum)
+            } else {
+                numberToTagalog(rawNum.toLongOrNull() ?: 0L)
+            }
+            "$spokenNum $customPercentUnit"
         }
 
         // 3. Apply editable custom dictionary entries BEFORE integer/loanword passes so custom words win
@@ -137,7 +142,157 @@ object TagalogPhoneticNormalizer {
             text = regex.replace(text, phonetic)
         }
 
-        return text.replace(Regex("\\s+"), " ").trim()
+        // 7. Final strict zero-digit pass so ZERO ASCII digits ever reach ElevenLabs TTS
+        return sanitizeDigitsForTts(text)
+    }
+
+    fun sanitizeDigitsForTts(input: String): String {
+        if (input.isEmpty()) return ""
+        if (!input.any { it.isDigit() }) {
+            return input.replace(Regex("\\s+"), " ").trim()
+        }
+
+        // Preserve ElevenLabs audio tags like [whispers] or [tense] verbatim while sanitizing all speech around them
+        val tagRegex = Regex("\\[[^\\]]+\\]")
+        val matches = tagRegex.findAll(input).toList()
+        if (matches.isEmpty()) {
+            return sanitizeDigitsSegment(input).replace(Regex("\\s+"), " ").trim()
+        }
+
+        val sb = StringBuilder()
+        var cursor = 0
+        for (m in matches) {
+            if (m.range.first > cursor) {
+                sb.append(sanitizeDigitsSegment(input.substring(cursor, m.range.first)))
+            }
+            val tag = m.value
+            sb.append(if (tag.any { it.isDigit() }) sanitizeDigitsSegment(tag) else tag)
+            cursor = m.range.last + 1
+        }
+        if (cursor < input.length) {
+            sb.append(sanitizeDigitsSegment(input.substring(cursor)))
+        }
+        return sb.toString().replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun sanitizeDigitsSegment(segment: String): String {
+        var text = segment
+        if (!text.any { it.isDigit() }) return text
+
+        // A. Shorthand numbers like 500k, 2M, 1.5B
+        val shorthandRegex = Regex("(?i)\\b(\\d+(?:,\\d+)*)(?:\\.(\\d+))?([kmb])\\b")
+        text = shorthandRegex.replace(text) { match ->
+            val intPart = match.groupValues[1].replace(",", "").toLongOrNull() ?: 0L
+            val decPart = match.groupValues[2]
+            val unitChar = match.groupValues[3].lowercase()
+            val multiplierUnit = when (unitChar) {
+                "k" -> "libo"
+                "m" -> "milyon"
+                else -> "bilyon"
+            }
+            if (decPart.isNotEmpty()) {
+                "${numberToTagalog(intPart)} punto ${spellDigitsIndividually(decPart)} $multiplierUnit"
+            } else {
+                val prefix = if (intPart == 1L) "isang" else numberToTagalog(intPart)
+                "$prefix $multiplierUnit"
+            }
+        }
+
+        // B. Time strings like 3:30 or 12:05
+        val timeRegex = Regex("\\b(\\d+):(\\d+)\\b")
+        text = timeRegex.replace(text) { match ->
+            val hour = match.groupValues[1].toLongOrNull() ?: 0L
+            val min = match.groupValues[2].toLongOrNull() ?: 0L
+            if (min == 0L) {
+                "alas-${numberToTagalog(hour)}"
+            } else {
+                "${numberToTagalog(hour)} at ${numberToTagalog(min)}"
+            }
+        }
+
+        // C. Decimals like 3.5 or 99.9
+        val decimalRegex = Regex("\\b(\\d+(?:,\\d+)*)\\.(\\d+)\\b")
+        text = decimalRegex.replace(text) { match ->
+            decimalStringToTagalog(match.value.replace(",", ""))
+        }
+
+        // D. English/Tagalog ordinals like 1st, 2nd, 3rd, 4th
+        val ordinalRegex = Regex("(?i)\\b(\\d+)(st|nd|rd|th)\\b")
+        text = ordinalRegex.replace(text) { match ->
+            val n = match.groupValues[1].toLongOrNull() ?: 0L
+            when (n) {
+                1L -> "una"
+                2L -> "pangalawa"
+                3L -> "pangatlo"
+                else -> "pang-${numberToTagalog(n)}"
+            }
+        }
+
+        // E. Remaining multi-digit numbers (including >= 1 billion)
+        val remainingNumbersRegex = Regex("\\d+(?:,\\d+)*")
+        text = remainingNumbersRegex.replace(text) { match ->
+            val clean = match.value.replace(",", "")
+            val num = clean.toLongOrNull()
+            if (num != null && num <= 999_999_999_999L) {
+                largeNumberToTagalog(num)
+            } else {
+                spellDigitsIndividually(clean)
+            }
+        }
+
+        // F. Absolute guarantee: replace any stray ASCII digit character 0-9 (e.g. A1B2 fallback)
+        if (text.any { it.isDigit() }) {
+            val out = StringBuilder(text.length * 2)
+            for (i in text.indices) {
+                val ch = text[i]
+                if (ch.isDigit()) {
+                    if (out.isNotEmpty() && out.last().isLetter()) out.append(' ')
+                    out.append(digitCharToTagalog(ch))
+                    val next = text.getOrNull(i + 1)
+                    if (next != null && next.isLetter()) out.append(' ')
+                } else {
+                    out.append(ch)
+                }
+            }
+            text = out.toString()
+        }
+        return text
+    }
+
+    private fun decimalStringToTagalog(rawDecimal: String): String {
+        val parts = rawDecimal.split('.')
+        val whole = parts.getOrNull(0)?.toLongOrNull() ?: 0L
+        val frac = parts.getOrNull(1).orEmpty()
+        return if (frac.isNotEmpty()) {
+            "${largeNumberToTagalog(whole)} punto ${spellDigitsIndividually(frac)}"
+        } else {
+            largeNumberToTagalog(whole)
+        }
+    }
+
+    private fun largeNumberToTagalog(n: Long): String {
+        if (n <= 999_999_999L) return numberToTagalog(n)
+        val billions = n / 1_000_000_000L
+        val rem = n % 1_000_000_000L
+        val bWord = if (billions == 1L) "isang bilyon" else "${numberToTagalog(billions)} bilyon"
+        return if (rem == 0L) bWord else "$bWord ${numberToTagalog(rem)}"
+    }
+
+    private fun spellDigitsIndividually(digits: String): String =
+        digits.filter { it.isDigit() }.map { digitCharToTagalog(it) }.joinToString(" ")
+
+    private fun digitCharToTagalog(ch: Char): String = when (ch) {
+        '0' -> "sero"
+        '1' -> "isa"
+        '2' -> "dalawa"
+        '3' -> "tatlo"
+        '4' -> "apat"
+        '5' -> "lima"
+        '6' -> "anim"
+        '7' -> "pito"
+        '8' -> "walo"
+        '9' -> "siyam"
+        else -> ""
     }
 
     fun numberToTagalog(n: Long): String {

@@ -110,13 +110,18 @@ import com.example.model.ProductionMode
 import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
+import com.example.model.StoryNiche
 import com.example.model.VideoAspectRatio
 import com.example.model.WorldFx
 import android.annotation.SuppressLint
 import android.graphics.Color as AndroidColor
+import android.os.SystemClock
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -124,6 +129,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.render.MotionHtmlDirector
 import com.example.render.SceneCompositor
+import com.example.render.StudioRendererBridge
 import com.example.render.WebViewFrameRenderer
 import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
@@ -165,6 +171,7 @@ fun StudioScreen(
     val stagedRenderQueue by viewModel.stagedRenderQueue.collectAsStateWithLifecycle()
 
     val scriptSourceMode = settings.effectiveScriptSourceMode
+    val selectedNiche = settings.selectedNiche
     val activeTemplate = settings.activeTemplate
     var showPromptEditor by remember { mutableStateOf(false) }
     var templateDropdownOpen by remember { mutableStateOf(false) }
@@ -250,6 +257,12 @@ fun StudioScreen(
                 onSelectMode = { mode -> viewModel.setScriptSourceMode(mode) }
             )
 
+            // Story Niche Selector (Multi-Niche GSAP Vector Studio)
+            NicheSelectorCard(
+                selectedNiche = selectedNiche,
+                onSelectNiche = { niche -> viewModel.selectNiche(niche) }
+            )
+
             // Direct Storyboard / Script Input Card (Zero LLM API Timeout)
             AnimatedVisibility(visible = scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT) {
                 DirectScriptInputCard(
@@ -327,7 +340,7 @@ fun StudioScreen(
                         ) {
                             Text(
                                 text = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) {
-                                    "HTML5 God Prompt v2"
+                                    "JSON Studio Director"
                                 } else {
                                     "JSON Schema Locked"
                                 },
@@ -1006,6 +1019,7 @@ fun StudioScreen(
                 viewModel = viewModel,
                 productionMode = productionMode,
                 selectedStyle = selectedStyle,
+                selectedNiche = selectedNiche,
                 aspectRatio = aspectRatio,
                 scriptSourceMode = scriptSourceMode,
                 directScriptText = directScriptText,
@@ -1213,6 +1227,129 @@ private fun ScriptSourceSelectorCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NicheSelectorCard(
+    selectedNiche: StoryNiche,
+    onSelectNiche: (StoryNiche) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = StudioSurface),
+        border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.45f)),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Story Niche & Rig Pack",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Surface(
+                    color = ForgeAmber.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = selectedNiche.seriesBadge,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ForgeAmber,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    onClick = { expanded = true },
+                    color = StudioSurfaceElevated,
+                    border = BorderStroke(1.dp, StudioOutline),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("niche_selector_dropdown")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = selectedNiche.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = selectedNiche.subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "Select story niche",
+                            tint = ForgeAmber
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    StoryNiche.entries.forEach { niche ->
+                        val isSelected = niche == selectedNiche
+                        DropdownMenuItem(
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("niche_option_${niche.nicheKey}"),
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = niche.displayName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) ForgeAmber else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = niche.subtitle,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSelectNiche(niche)
+                                expanded = false
+                            }
+                        )
                     }
                 }
             }
@@ -1690,6 +1827,7 @@ private fun LiveCanvasPreviewCard(
     viewModel: MainViewModel,
     productionMode: ProductionMode,
     selectedStyle: AnimationStyle,
+    selectedNiche: StoryNiche,
     aspectRatio: VideoAspectRatio,
     scriptSourceMode: ScriptSourceMode,
     directScriptText: String,
@@ -1705,7 +1843,7 @@ private fun LiveCanvasPreviewCard(
     demoShotFraming: ShotFraming
 ) {
     val activeScenes = remember(
-        generatedScenes, selectedStyle, demoRole, demoAction, demoFx, demoPill, demoHudWidget, demoShotFraming
+        generatedScenes, selectedStyle, selectedNiche, demoRole, demoAction, demoFx, demoPill, demoHudWidget, demoShotFraming
     ) {
         if (generatedScenes.isNotEmpty()) generatedScenes else viewModel.buildDemoPreviewScenes()
     }
@@ -1790,21 +1928,38 @@ private fun LiveCanvasPreviewCard(
                             null
                         }
                     }
-                    val previewHtml = remember(customDirectHtml, activeScenes, selectedStyle, totalDurMs, aspectRatio) {
-                        customDirectHtml ?: MotionHtmlDirector.buildHtmlDocument(
+                    val previewHtml = remember(customDirectHtml, activeScenes, selectedNiche, totalDurMs, aspectRatio) {
+                        customDirectHtml ?: StudioRendererBridge.buildStudioHtmlDocument(
                             scenes = activeScenes,
-                            style = selectedStyle,
-                            totalDurationMs = totalDurMs,
-                            includeAiBackdrops = activeScenes.any { it.backdropBitmap != null },
-                            context = previewCtx,
-                            aspectRatio = aspectRatio
+                            title = activeScenes.firstOrNull()?.scene?.episodeTitle?.ifBlank { selectedNiche.seriesBadge }
+                                ?: selectedNiche.seriesBadge,
+                            niche = selectedNiche,
+                            aspectRatio = aspectRatio,
+                            context = previewCtx
                         )
                     }
                     MotionWebViewPreview(
                         htmlDocument = previewHtml,
                         aspectRatioKey = aspectRatio.ratioKey,
                         currentSeconds = previewTimeMs / 1000.0,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        fallbackContent = {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawIntoCanvas { canvas ->
+                                    SceneCompositor.drawFrame(
+                                        canvas = canvas.nativeCanvas,
+                                        width = size.width,
+                                        height = size.height,
+                                        scenes = activeScenes,
+                                        style = selectedStyle,
+                                        currentMs = previewTimeMs,
+                                        fallbackBackdropCache = viewModel.previewBackdropCache,
+                                        productionMode = productionMode,
+                                        customSprites = customSprites
+                                    )
+                                }
+                            }
+                        }
                     )
                 }
             }
@@ -1932,12 +2087,16 @@ private fun MotionWebViewPreview(
     htmlDocument: String,
     aspectRatioKey: String,
     currentSeconds: Double,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fallbackContent: (@Composable () -> Unit)? = null
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var lastLoadedHtml by remember { mutableStateOf("") }
     var lastAspectRatioKey by remember { mutableStateOf(aspectRatioKey) }
     var pageReady by remember { mutableStateOf(false) }
+    var rendererCrashed by remember { mutableStateOf(false) }
+    var evalInFlight by remember { mutableStateOf(false) }
+    var lastEvalAtMs by remember { mutableStateOf(0L) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1950,6 +2109,36 @@ private fun MotionWebViewPreview(
             }
             webViewRef = null
         }
+    }
+
+    if (rendererCrashed) {
+        Box(modifier = modifier.testTag("motion_webview_preview_fallback")) {
+            fallbackContent?.invoke()
+            Surface(
+                color = StudioSurface.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+            ) {
+                TextButton(
+                    onClick = {
+                        lastLoadedHtml = ""
+                        pageReady = false
+                        evalInFlight = false
+                        rendererCrashed = false
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        text = "Reload WebView",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ForgeCyan
+                    )
+                }
+            }
+        }
+        return
     }
 
     AndroidView(
@@ -1966,7 +2155,7 @@ private fun MotionWebViewPreview(
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = false
-                    allowFileAccess = false
+                    allowFileAccess = true
                     allowContentAccess = false
                     useWideViewPort = true
                     loadWithOverviewMode = true
@@ -1975,33 +2164,78 @@ private fun MotionWebViewPreview(
                     displayZoomControls = false
                 }
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean = true
+
                     override fun onPageFinished(view: WebView?, url: String?) {
                         pageReady = true
+                        evalInFlight = false
                         val ratioJs = WebViewFrameRenderer.buildSetAspectRatioScript(aspectRatioKey)
                         val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
+                        lastEvalAtMs = SystemClock.uptimeMillis()
                         view?.evaluateJavascript("$ratioJs if (window.seekToTime) window.seekToTime($secStr);", null)
+                    }
+
+                    override fun onRenderProcessGone(
+                        view: WebView?,
+                        detail: RenderProcessGoneDetail?
+                    ): Boolean {
+                        val didCrash = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            detail?.didCrash() == true
+                        } else {
+                            true
+                        }
+                        Log.e("MotionWebViewPreview", "WebView renderer process gone (didCrash=$didCrash)")
+                        pageReady = false
+                        evalInFlight = false
+                        rendererCrashed = true
+                        runCatching {
+                            (view?.parent as? ViewGroup)?.removeView(view)
+                            view?.stopLoading()
+                            view?.destroy()
+                        }
+                        if (webViewRef === view) {
+                            webViewRef = null
+                        }
+                        return true
                     }
                 }
                 webViewRef = this
                 lastLoadedHtml = htmlDocument
                 lastAspectRatioKey = aspectRatioKey
                 pageReady = false
-                loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
+                evalInFlight = false
+                val preparedHtml = WebViewFrameRenderer.prepareHtmlForWebView(htmlDocument)
+                loadDataWithBaseURL(WebViewFrameRenderer.ASSET_BASE_URL, preparedHtml, "text/html", "UTF-8", null)
             }
         },
         update = { wv ->
+            if (rendererCrashed) return@AndroidView
             if (lastLoadedHtml != htmlDocument) {
                 lastLoadedHtml = htmlDocument
                 lastAspectRatioKey = aspectRatioKey
                 pageReady = false
-                wv.loadDataWithBaseURL("https://toonforge.local/", htmlDocument, "text/html", "UTF-8", null)
+                evalInFlight = false
+                val preparedHtml = WebViewFrameRenderer.prepareHtmlForWebView(htmlDocument)
+                wv.stopLoading()
+                wv.loadDataWithBaseURL(WebViewFrameRenderer.ASSET_BASE_URL, preparedHtml, "text/html", "UTF-8", null)
             } else if (pageReady) {
-                val ratioJs = if (lastAspectRatioKey != aspectRatioKey) {
-                    lastAspectRatioKey = aspectRatioKey
-                    WebViewFrameRenderer.buildSetAspectRatioScript(aspectRatioKey) + " "
-                } else ""
-                val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
-                wv.evaluateJavascript("${ratioJs}if (window.seekToTime) window.seekToTime($secStr);", null)
+                val ratioChanged = lastAspectRatioKey != aspectRatioKey
+                val nowMs = SystemClock.uptimeMillis()
+                if (!evalInFlight && (ratioChanged || nowMs - lastEvalAtMs >= 66L)) {
+                    val ratioJs = if (ratioChanged) {
+                        lastAspectRatioKey = aspectRatioKey
+                        WebViewFrameRenderer.buildSetAspectRatioScript(aspectRatioKey) + " "
+                    } else ""
+                    val secStr = String.format(java.util.Locale.US, "%.4f", currentSeconds.coerceAtLeast(0.0))
+                    evalInFlight = true
+                    lastEvalAtMs = nowMs
+                    wv.evaluateJavascript("${ratioJs}if (window.seekToTime) window.seekToTime($secStr);") {
+                        evalInFlight = false
+                    }
+                }
             }
         }
     )

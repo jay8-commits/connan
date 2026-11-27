@@ -30,13 +30,14 @@ import com.example.model.GenerationProgress
 import com.example.model.PipelineStep
 import com.example.model.ProductionMode
 import com.example.model.ScriptSourceMode
+import com.example.model.StoryNiche
 import com.example.model.TimelineScene
 import com.example.model.VideoAspectRatio
 import com.example.model.WordTiming
 import com.example.render.CharacterSpriteProcessor
 import com.example.render.DeterministicVideoExporter
 import com.example.render.ExternalClipFrameSource
-import com.example.render.MotionHtmlDirector
+import com.example.render.StudioRendererBridge
 import com.example.render.WebViewFrameRenderer
 import com.example.tts.AudioPcmStitcher
 import com.example.tts.ElevenLabsClient
@@ -66,7 +67,8 @@ data class RenderBatchItem(
     val scriptSourceModeOverride: ScriptSourceMode?,
     val directScriptOverride: String,
     val voiceIdCatOverride: String = "",
-    val aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16
+    val aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
+    val niche: StoryNiche = StoryNiche.SA_BAYANG_ITO
 )
 
 class VideoGenerationService : Service() {
@@ -81,6 +83,7 @@ class VideoGenerationService : Service() {
         const val EXTRA_VOICE_ID = "extra_voice_id"
         const val EXTRA_SECONDARY_VOICE_ID = "extra_secondary_voice_id"
         const val EXTRA_ASPECT_RATIO = "extra_aspect_ratio"
+        const val EXTRA_NICHE = "extra_niche"
         const val EXTRA_PRODUCTION_MODE = "extra_production_mode"
         const val EXTRA_IMPORTED_CLIP_URIS = "extra_imported_clip_uris"
         const val EXTRA_SCRIPT_SOURCE_MODE = "extra_script_source_mode"
@@ -116,6 +119,7 @@ class VideoGenerationService : Service() {
                         put("voice_id", item.voiceIdOverride)
                         put("voice_id_cat", item.voiceIdCatOverride)
                         put("aspect_ratio", item.aspectRatio.name)
+                        put("niche", item.niche.nicheKey)
                         put("production_mode", item.productionMode.name)
                         put("script_source_mode", item.scriptSourceModeOverride?.name.orEmpty())
                         put("direct_script", item.directScriptOverride)
@@ -159,7 +163,8 @@ class VideoGenerationService : Service() {
                                 scriptSourceModeOverride = sourceMode,
                                 directScriptOverride = obj.optString("direct_script", ""),
                                 voiceIdCatOverride = obj.optString("voice_id_cat", ""),
-                                aspectRatio = VideoAspectRatio.fromRaw(obj.optString("aspect_ratio", ""))
+                                aspectRatio = VideoAspectRatio.fromRaw(obj.optString("aspect_ratio", "")),
+                                niche = StoryNiche.fromRaw(obj.optString("niche", ""))
                             )
                         )
                     }
@@ -199,6 +204,7 @@ class VideoGenerationService : Service() {
         val voiceId = intent.getStringExtra(EXTRA_VOICE_ID).orEmpty()
         val voiceIdCat = intent.getStringExtra(EXTRA_SECONDARY_VOICE_ID).orEmpty()
         val aspectRatio = VideoAspectRatio.fromRaw(intent.getStringExtra(EXTRA_ASPECT_RATIO))
+        val niche = StoryNiche.fromRaw(intent.getStringExtra(EXTRA_NICHE))
         val productionMode = ProductionMode.fromRaw(intent.getStringExtra(EXTRA_PRODUCTION_MODE))
         val importedClipUris = intent.getStringArrayListExtra(EXTRA_IMPORTED_CLIP_URIS)
             ?.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
@@ -233,7 +239,8 @@ class VideoGenerationService : Service() {
                 scriptSourceModeOverride = scriptSourceModeOverride,
                 directScriptOverride = directScriptOverride,
                 voiceIdCatOverride = voiceIdCat,
-                aspectRatio = aspectRatio
+                aspectRatio = aspectRatio,
+                niche = niche
             )
         )
     }
@@ -366,6 +373,7 @@ class VideoGenerationService : Service() {
                     voiceIdOverride = nextItem.voiceIdOverride,
                     voiceIdCatOverride = nextItem.voiceIdCatOverride,
                     aspectRatio = nextItem.aspectRatio,
+                    niche = nextItem.niche,
                     productionMode = nextItem.productionMode,
                     importedClipUris = nextItem.importedClipUris,
                     scriptSourceModeOverride = nextItem.scriptSourceModeOverride,
@@ -458,6 +466,7 @@ class VideoGenerationService : Service() {
         voiceIdOverride: String,
         voiceIdCatOverride: String = "",
         aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
+        niche: StoryNiche = StoryNiche.SA_BAYANG_ITO,
         productionMode: ProductionMode,
         importedClipUris: List<Uri>,
         scriptSourceModeOverride: ScriptSourceMode?,
@@ -603,6 +612,8 @@ class VideoGenerationService : Service() {
                         durationSeconds = durationSec,
                         style = style,
                         settings = settings,
+                        niche = niche,
+                        aspectRatio = aspectRatio,
                         onStatus = { status ->
                             publish(PipelineStep.SCRIPT, 0.5f, 0.12f, status)
                         }
@@ -771,94 +782,28 @@ class VideoGenerationService : Service() {
                     )
                 }
             } else {
-                val scenesNeedingVectorArt = scenes.filter { it.customSvg.isBlank() }
-                val backdropMap = mutableMapOf<Int, Bitmap>()
-                if (scenesNeedingVectorArt.isNotEmpty()) {
-                    val imageClient = AiHordeImageClient()
-                    val useAiHordeForArt = activeScriptMode == ScriptSourceMode.AI_HORDE
-                    val artBatchStartMsg = if (useAiHordeForArt) {
-                        "Generating ${scenesNeedingVectorArt.size} 2D flat vector illustrations via AI Horde..."
-                    } else {
-                        "Generating ${scenesNeedingVectorArt.size} 2D flat vector scene illustrations..."
-                    }
-                    publish(
-                        PipelineStep.ART,
-                        0.05f,
-                        0.42f,
-                        artBatchStartMsg,
-                        sceneIdx = 0,
-                        sceneCount = scenes.size
-                    )
-
-                    val backdropResults = imageClient.generateBackdropsBatch(
-                        scenes = scenesNeedingVectorArt,
-                        style = style,
-                        aiHordeApiKey = settings.aiHordeApiKey,
-                        topicSeed = topic.hashCode(),
-                        preferAiHordeDirect = useAiHordeForArt,
-                        forceNetworkArt = true,
-                        useFlatVectorPrompt = true
-                    ) { doneCount, totalCount ->
-                        val frac = doneCount.toFloat() / totalCount.coerceAtLeast(1).toFloat()
-                        val label = if (useAiHordeForArt) {
-                            "AI Horde generated 2D vector illustration ($doneCount/$totalCount)..."
-                        } else {
-                            "Generated 2D flat vector illustration ($doneCount/$totalCount)..."
-                        }
-                        publish(
-                            PipelineStep.ART,
-                            frac,
-                            0.42f + frac * 0.22f,
-                            label,
-                            sceneIdx = doneCount,
-                            sceneCount = totalCount
-                        )
-                    }
-
-                    scenesNeedingVectorArt.forEachIndexed { artIdx, artScene ->
-                        val bmp = backdropResults.getOrNull(artIdx)?.bitmap
-                        if (bmp != null) {
-                            renderBackdrops.add(bmp)
-                            backdropMap[artScene.sceneId] = bmp
-                        }
-                    }
-                } else {
-                    publish(
-                        PipelineStep.ART,
-                        0.85f,
-                        0.60f,
-                        "Using bespoke LLM SVG vector artwork for all ${scenes.size} scenes...",
-                        sceneIdx = scenes.size,
-                        sceneCount = scenes.size
-                    )
-                }
-
+                publish(
+                    PipelineStep.ART,
+                    0.95f,
+                    0.60f,
+                    "Prepared ${scenes.size} GSAP 2.5D Vector Studio scenes (${niche.displayName})...",
+                    sceneIdx = scenes.size,
+                    sceneCount = scenes.size
+                )
                 scenes.forEachIndexed { idx, scene ->
                     currentCoroutineContext().ensureActive()
-                    val bmp = if (scene.customSvg.isBlank()) backdropMap[scene.sceneId] else null
-                    val previewThumb = bmp?.let { Bitmap.createScaledBitmap(it, 360, 640, true) }
                     val startMs = stitchedAudio.sceneStartMs[idx]
                     val endMs = stitchedAudio.sceneEndMs[idx]
                     val wordTimings = stitchedAudio.sceneWordTimings[idx]
-
-                    timelineScenes.add(
-                        TimelineScene(
-                            scene = scene,
-                            startMs = startMs,
-                            endMs = endMs,
-                            wordTimings = wordTimings,
-                            backdropBitmap = bmp
-                        )
+                    val ts = TimelineScene(
+                        scene = scene,
+                        startMs = startMs,
+                        endMs = endMs,
+                        wordTimings = wordTimings,
+                        backdropBitmap = null
                     )
-                    previewScenes.add(
-                        TimelineScene(
-                            scene = scene,
-                            startMs = startMs,
-                            endMs = endMs,
-                            wordTimings = wordTimings,
-                            backdropBitmap = previewThumb
-                        )
-                    )
+                    timelineScenes.add(ts)
+                    previewScenes.add(ts)
                 }
             }
 
@@ -891,24 +836,29 @@ class VideoGenerationService : Service() {
                     if (directCustomHtmlDoc != null) {
                         "Booting ${videoWidth}x${videoHeight} WebView for Custom HTML/SVG Storyboard..."
                     } else {
-                        "Booting ${videoWidth}x${videoHeight} HTML5/SVG Motion Engine..."
+                        "Booting ${videoWidth}x${videoHeight} Offline GSAP Studio Engine (${niche.displayName})..."
                     }
                 )
-                val htmlDoc = directCustomHtmlDoc ?: MotionHtmlDirector.buildHtmlDocument(
+                val htmlDoc = directCustomHtmlDoc ?: StudioRendererBridge.buildStudioHtmlDocument(
                     scenes = timelineScenes,
-                    style = style,
-                    totalDurationMs = stitchedAudio.totalDurationMs,
-                    includeAiBackdrops = scenes.any { it.customSvg.isBlank() } || settings.enableAiBackgroundArt,
-                    context = applicationContext,
-                    aspectRatio = aspectRatio
+                    title = topic,
+                    niche = niche,
+                    aspectRatio = aspectRatio,
+                    context = applicationContext
                 )
-                val sceneDurationsSec = if (directCustomHtmlDoc != null) {
-                    stitchedAudio.sceneStartMs.indices.map { i ->
-                        ((stitchedAudio.sceneEndMs[i] - stitchedAudio.sceneStartMs[i]) / 1000.0)
-                            .coerceAtLeast(0.1)
-                    }
+                val episodeJson = if (directCustomHtmlDoc == null) {
+                    StudioRendererBridge.buildEpisodeJson(
+                        scenes = timelineScenes,
+                        title = topic,
+                        niche = niche,
+                        aspectRatio = aspectRatio
+                    )
                 } else {
-                    emptyList()
+                    ""
+                }
+                val sceneDurationsSec = stitchedAudio.sceneStartMs.indices.map { i ->
+                    ((stitchedAudio.sceneEndMs[i] - stitchedAudio.sceneStartMs[i]) / 1000.0)
+                        .coerceAtLeast(0.1)
                 }
                 val renderer = WebViewFrameRenderer.create(
                     context = applicationContext,
@@ -916,7 +866,8 @@ class VideoGenerationService : Service() {
                     width = videoWidth,
                     height = videoHeight,
                     sceneDurationsSec = sceneDurationsSec,
-                    aspectRatioKey = aspectRatio.ratioKey
+                    aspectRatioKey = aspectRatio.ratioKey,
+                    episodeJson = episodeJson
                 )
                 webViewFrameRenderer = renderer
                 { _, currentMs, targetBitmap ->
@@ -954,7 +905,7 @@ class VideoGenerationService : Service() {
                 customSprites = customSprites,
                 externalClipFrameSource = externalClipFrameSource,
                 frameBitmapProvider = frameProvider,
-                overlayCaptionsOnCustomFrames = (directCustomHtmlDoc != null),
+                overlayCaptionsOnCustomFrames = true,
                 videoBitrate = DeterministicVideoExporter.VIDEO_BITRATE,
                 videoWidth = videoWidth,
                 videoHeight = videoHeight
@@ -987,6 +938,14 @@ class VideoGenerationService : Service() {
             webViewFrameRenderer = null
             runCatching { externalClipFrameSource?.close() }
             runCatching { tempWorkDir.deleteRecursively() }
+            val queueEmpty = synchronized(queueLock) { renderQueue.isEmpty() }
+            runCatching {
+                DeterministicVideoExporter.cleanupTemporaryCacheBuffers(
+                    cacheDir = cacheDir,
+                    activeWorkDir = null,
+                    deleteBatchJsonOlderThanMs = if (queueEmpty) 0L else 3_600_000L
+                )
+            }
             runCatching {
                 if (wakeLock.isHeld) wakeLock.release()
             }

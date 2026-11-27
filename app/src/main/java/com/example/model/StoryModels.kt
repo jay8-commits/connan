@@ -482,6 +482,57 @@ enum class LightingState {
     }
 }
 
+enum class StoryNiche(
+    val nicheKey: String,
+    val displayName: String,
+    val subtitle: String,
+    val seriesBadge: String
+) {
+    SA_BAYANG_ITO(
+        nicheKey = "sa_bayang_ito",
+        displayName = "\"Sa Bayang Ito...\" - Emotional/Folklore Story",
+        subtitle = "Cinematic Pinoy folklore, town drama & emotional twists",
+        seriesBadge = "SA BAYANG ITO..."
+    ),
+    MATALINONG_DAGA(
+        nicheKey = "matalinong_daga",
+        displayName = "\"Matalinong Daga\" - Stoic/Psychology Dual-Voice",
+        subtitle = "Rat & Cat sharp banter, street wisdom & psychology",
+        seriesBadge = "MATALINONG DAGA"
+    ),
+    ZACK_EXPLAINER(
+        nicheKey = "zack_explainer",
+        displayName = "\"Zack D. Films Style\" - Science/Body Cutaway Explainer",
+        subtitle = "Micro-anatomy, organs, nerve sparks & viral facts",
+        seriesBadge = "SCIENCE CUTAWAY"
+    );
+
+    companion object {
+        fun fromRaw(raw: String?): StoryNiche {
+            val clean = raw?.trim()?.lowercase() ?: return SA_BAYANG_ITO
+            return entries.firstOrNull {
+                it.name.lowercase() == clean || it.nicheKey == clean
+            } ?: SA_BAYANG_ITO
+        }
+    }
+}
+
+data class StudioCameraSpec(
+    val preset: String = "push_in",
+    val zoom: Float = 1.08f
+)
+
+data class StudioActorSpec(
+    val role: String = "hero",
+    val x: Float = 0.5f,
+    val y: Float = 0.58f,
+    val scale: Float = 1.0f,
+    val targetScale: Float = 1.0f,
+    val facing: Int = 1,
+    val mood: String = "determined",
+    val action: String = "idle"
+)
+
 data class PointerCallout(
     val label: String,
     val x: Float,
@@ -535,7 +586,14 @@ data class SceneScript(
     val hudUnit: String = "%",
     val sfxCues: List<String> = emptyList(),
     val customSvg: String = "",
-    val speaker: String = ""
+    val speaker: String = "",
+    val durationSec: Double = 0.0,
+    val bgTheme: String = "",
+    val cameraSpec: StudioCameraSpec? = null,
+    val actors: List<StudioActorSpec> = emptyList(),
+    val fxKey: String = "",
+    val episodeTitle: String = "",
+    val storyNiche: StoryNiche? = null
 ) {
     val effectiveVisualDescription: String
         get() = visualDescription.ifBlank { backgroundPrompt }
@@ -615,7 +673,8 @@ data class StudioSettings(
     val customBgmName: String = "",
     val pronunciationDictionary: List<PronunciationEntry> = emptyList(),
     val narrationSpeed: Float = 1.0f,
-    val enableAiBackgroundArt: Boolean = false
+    val enableAiBackgroundArt: Boolean = false,
+    val selectedNiche: StoryNiche = StoryNiche.SA_BAYANG_ITO
 ) {
     val activeTemplate: PromptTemplate?
         get() = promptTemplates.firstOrNull { it.id == activePromptId } ?: promptTemplates.firstOrNull()

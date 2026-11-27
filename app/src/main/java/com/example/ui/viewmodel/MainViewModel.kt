@@ -32,6 +32,9 @@ import com.example.model.SceneScript
 import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
+import com.example.model.StoryNiche
+import com.example.model.StudioActorSpec
+import com.example.model.StudioCameraSpec
 import com.example.model.StudioSettings
 import com.example.model.TimelineScene
 import com.example.model.VideoAspectRatio
@@ -306,6 +309,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _aspectRatio.value = ratio
     }
 
+    fun selectNiche(niche: StoryNiche) {
+        viewModelScope.launch {
+            settingsStore.setSelectedNiche(niche)
+        }
+    }
+
     fun togglePreviewPlay() {
         _previewPlaying.value = !_previewPlaying.value
     }
@@ -343,6 +352,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val action = _demoActorAction.value
         val fx = _demoWorldFx.value
         val style = _selectedStyle.value
+        val niche = settings.value.selectedNiche
         val pill = if (style == AnimationStyle.TECH_EXPLAINER && _demoStatusPill.value == StatusPill.NONE) {
             StatusPill.GOAL
         } else {
@@ -353,13 +363,81 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _demoHudWidget.value
         }
-        val callout = if (style == AnimationStyle.TECH_EXPLAINER || pill != StatusPill.NONE || widget != HudWidget.NONE) {
-            "90% LAKAS"
-        } else ""
-        val narration = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
-            "Ganito dumadaloy ang kuryente sa loob ng battery kapag mabilis ang charging!"
-        } else {
-            "Alam mo ba kung bakit ubos ang 90% ng sahod mo?"
+        val callout = when {
+            niche == StoryNiche.ZACK_EXPLAINER -> "NERVE SIGNAL"
+            niche == StoryNiche.MATALINONG_DAGA -> "DISKARTENG DAGA"
+            style == AnimationStyle.TECH_EXPLAINER || pill != StatusPill.NONE || widget != HudWidget.NONE -> "90% LAKAS"
+            else -> ""
+        }
+        val narration = when {
+            niche == StoryNiche.ZACK_EXPLAINER || style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER ->
+                "Ganito dumadaloy ang signal sa loob ng katawan kapag nagugulat ka!"
+            niche == StoryNiche.MATALINONG_DAGA ->
+                "Huwag kang magpadala sa takot, Pusa—tingnan mo muna ang totoong pain!"
+            else ->
+                "Alam mo ba kung bakit ubos ang 90% ng sahod mo?"
+        }
+        val demoBgTheme = when (niche) {
+            StoryNiche.ZACK_EXPLAINER -> "anatomy_lab"
+            StoryNiche.MATALINONG_DAGA -> "town_sunset"
+            StoryNiche.SA_BAYANG_ITO -> if (style == AnimationStyle.DARK_SUSPENSE) "town_storm" else "town_sunset"
+        }
+        val demoActors = when (niche) {
+            StoryNiche.ZACK_EXPLAINER -> listOf(
+                StudioActorSpec(
+                    role = "anatomy_cutaway",
+                    x = 0.5f,
+                    y = 0.52f,
+                    scale = 1.02f,
+                    targetScale = 1.08f,
+                    facing = 1,
+                    mood = "determined",
+                    action = "idle"
+                )
+            )
+            StoryNiche.MATALINONG_DAGA -> listOf(
+                StudioActorSpec(
+                    role = "rat",
+                    x = 0.34f,
+                    y = 0.60f,
+                    scale = 1.06f,
+                    targetScale = 1.08f,
+                    facing = 1,
+                    mood = "squint",
+                    action = "chop"
+                ),
+                StudioActorSpec(
+                    role = "cat",
+                    x = 0.68f,
+                    y = 0.58f,
+                    scale = 0.96f,
+                    targetScale = 0.96f,
+                    facing = -1,
+                    mood = "shocked",
+                    action = "idle"
+                )
+            )
+            StoryNiche.SA_BAYANG_ITO -> listOf(
+                StudioActorSpec(
+                    role = when (role) {
+                        ActorRole.RICH_MAN -> "mayor"
+                        ActorRole.POOR_MAN -> "bully"
+                        else -> "hero"
+                    },
+                    x = 0.5f,
+                    y = 0.58f,
+                    scale = 1.0f,
+                    targetScale = 1.06f,
+                    facing = 1,
+                    mood = "determined",
+                    action = "idle"
+                )
+            )
+        }
+        val demoFxKey = when (niche) {
+            StoryNiche.ZACK_EXPLAINER -> "nerve_sparks"
+            StoryNiche.MATALINONG_DAGA -> "sunbeams"
+            StoryNiche.SA_BAYANG_ITO -> if (style == AnimationStyle.DARK_SUSPENSE) "rain_storm" else "sunbeams"
         }
         val words = narration.split(" ")
         var cursor = 120.0
@@ -410,7 +488,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     cutawaySubject = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
                         CutawaySubject.BATTERY_CIRCUIT_CHARGE
-                    } else null
+                    } else null,
+                    speaker = if (niche == StoryNiche.MATALINONG_DAGA) "rat" else "narrator",
+                    durationSec = 4.2,
+                    bgTheme = demoBgTheme,
+                    cameraSpec = StudioCameraSpec(preset = "push_in", zoom = 1.12f),
+                    actors = demoActors,
+                    fxKey = demoFxKey,
+                    episodeTitle = niche.seriesBadge,
+                    storyNiche = niche
                 ),
                 startMs = 0.0,
                 endMs = 4200.0,
@@ -792,6 +878,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             voiceIdOverride = effectiveVoice,
             voiceIdCatOverride = effectiveSecondaryVoice,
             aspectRatio = selectedRatio,
+            niche = snapshot.selectedNiche,
             productionMode = mode,
             importedClipUris = clips.map { Uri.parse(it.uriString) },
             scriptSourceModeOverride = scriptMode,

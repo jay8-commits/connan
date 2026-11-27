@@ -58,6 +58,9 @@ import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.ShotType
 import com.example.model.StatusPill
+import com.example.model.StoryNiche
+import com.example.model.StudioActorSpec
+import com.example.model.StudioCameraSpec
 import com.example.model.StudioSettings
 import com.example.model.TimelineScene
 import com.example.model.VideoAspectRatio
@@ -76,6 +79,7 @@ import com.example.render.ViralCaptionTone
 import com.example.render.PixelCutawayRenderer
 import com.example.render.ProceduralPuppetEngine
 import com.example.render.PuppetSpringSolver
+import com.example.render.StudioRendererBridge
 import com.example.render.WebViewFrameRenderer
 import com.example.service.RenderBatchItem
 import com.example.service.VideoGenerationService
@@ -2907,5 +2911,265 @@ class ToonForgeCoreTest {
 
         val wrappedSvg = DirectStoryboardParser.buildCustomHtmlDocumentIfNeeded("<svg viewBox=\"0 0 1080 1920\"></svg>")
         assertTrue(wrappedSvg.contains("window.setAspectRatio"))
+    }
+
+    @Test
+    fun `studioRendererAssetMultiNicheJsonDirectorBridgeAndDigitSanitizerWork`() {
+        // 1. Permanent offline studio_renderer.html loads and contains GSAP + all required hooks/rigs/safe-zones
+        val rendererHtml = StudioRendererBridge.loadStudioRendererTemplate(null)
+        assertTrue(rendererHtml.contains("masterTimeline.seek"))
+        assertTrue(rendererHtml.contains("window.loadEpisodeJSON"))
+        assertTrue(rendererHtml.contains("window.setAspectRatio"))
+        assertTrue(rendererHtml.contains("window.setSceneTimings"))
+        assertTrue(rendererHtml.contains("window.seekToTime"))
+        assertTrue(rendererHtml.contains("window.STORYBOARD_SCENES"))
+        assertTrue(rendererHtml.contains("anatomy_cutaway"))
+        assertTrue(rendererHtml.contains("rain_storm"))
+        assertTrue(rendererHtml.contains("poof_smoke_stars"))
+        assertTrue(rendererHtml.contains("nerve_sparks"))
+        // Top HUD y=155 / y=205 and 1.5s ending hold buffer
+        assertTrue(rendererHtml.contains("155"))
+        assertTrue(rendererHtml.contains("205"))
+        assertTrue(rendererHtml.contains("1.5"))
+
+        // 2. Multi-Niche AI Director System Prompt covers all 3 niches & forbids raw HTML/digits
+        val saBayangPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
+            niche = StoryNiche.SA_BAYANG_ITO,
+            durationSeconds = 30,
+            aspectRatio = VideoAspectRatio.PORTRAIT_9_16
+        )
+        assertTrue(saBayangPrompt.contains("sa_bayang_ito"))
+        assertTrue(saBayangPrompt.contains("NEVER output HTML"))
+        assertTrue(saBayangPrompt.contains("ZERO DIGITS IN NARRATION"))
+
+        val dagaPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
+            niche = StoryNiche.MATALINONG_DAGA,
+            durationSeconds = 60,
+            aspectRatio = VideoAspectRatio.LANDSCAPE_16_9
+        )
+        assertTrue(dagaPrompt.contains("matalinong_daga"))
+        assertTrue(dagaPrompt.contains("\"rat\""))
+        assertTrue(dagaPrompt.contains("\"cat\""))
+        assertTrue(dagaPrompt.contains("16:9"))
+
+        val zackPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
+            niche = StoryNiche.ZACK_EXPLAINER,
+            durationSeconds = 30,
+            aspectRatio = VideoAspectRatio.PORTRAIT_9_16
+        )
+        assertTrue(zackPrompt.contains("zack_explainer"))
+        assertTrue(zackPrompt.contains("anatomy_cutaway"))
+        assertTrue(zackPrompt.contains("anatomy_lab"))
+
+        // 3. JsonSanitizer parses Studio Episode Choreography JSON cleanly
+        val studioChoreographyJson = """
+            {
+              "title": "SI PUSA AT SI DAGA",
+              "niche": "matalinong_daga",
+              "aspectRatio": "9:16",
+              "scenes": [
+                {
+                  "id": 1,
+                  "duration": 3.5,
+                  "speaker": "rat",
+                  "bgTheme": "town_sunset",
+                  "camera": { "preset": "push_in", "zoom": 1.15 },
+                  "actors": [
+                    { "role": "rat", "x": 0.35, "y": 0.62, "scale": 1.05, "targetScale": 1.1, "facing": 1, "mood": "squint", "action": "chop" },
+                    { "role": "cat", "x": 0.70, "y": 0.60, "scale": 0.95, "targetScale": 0.95, "facing": -1, "mood": "shocked", "action": "idle" }
+                  ],
+                  "fx": "sunbeams",
+                  "callout": "DISKARTENG DAGA",
+                  "narration": "Huwag kang magpadala sa takot, Pusa!"
+                },
+                {
+                  "id": 2,
+                  "duration": 3.2,
+                  "speaker": "cat",
+                  "bgTheme": "town_storm",
+                  "camera": { "preset": "impact_shake", "zoom": 1.18 },
+                  "actors": [
+                    { "role": "cat", "x": 0.62, "y": 0.60, "scale": 1.1, "targetScale": 1.12, "facing": -1, "mood": "scared", "action": "cry_shake" }
+                  ],
+                  "fx": "rain_storm",
+                  "callout": "HINDI KO ALAM!",
+                  "narration": "Teka lang Daga, nalilito na ako!"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsedStudioScenes = JsonSanitizer.parseAndValidateScenes(studioChoreographyJson)
+        assertEquals(2, parsedStudioScenes.size)
+        assertEquals(StoryNiche.MATALINONG_DAGA, parsedStudioScenes[0].storyNiche)
+        assertEquals("SI PUSA AT SI DAGA", parsedStudioScenes[0].episodeTitle)
+        assertEquals("rat", parsedStudioScenes[0].speaker)
+        assertEquals("cat", parsedStudioScenes[1].speaker)
+        assertEquals("town_storm", parsedStudioScenes[1].bgTheme)
+        assertEquals("impact_shake", parsedStudioScenes[1].cameraSpec?.preset)
+        assertEquals(2, parsedStudioScenes[0].actors.size)
+        assertEquals("rain_storm", parsedStudioScenes[1].fxKey)
+
+        // 4. StudioRendererBridge injects <script id="episode-data"> before <script id="gsap-inline">
+        val timelineScenes = parsedStudioScenes.mapIndexed { idx, sc ->
+            TimelineScene(sc, idx * 3500.0, (idx + 1) * 3500.0, emptyList())
+        }
+        val doc = StudioRendererBridge.buildStudioHtmlDocument(
+            scenes = timelineScenes,
+            niche = StoryNiche.MATALINONG_DAGA,
+            aspectRatio = VideoAspectRatio.PORTRAIT_9_16
+        )
+        val dataIdx = doc.indexOf("<script id=\"episode-data\"")
+        val gsapIdx = doc.indexOf("<script id=\"gsap-inline\">")
+        assertTrue(dataIdx >= 0)
+        assertTrue(gsapIdx > dataIdx)
+        val episodeJsonStr = StudioRendererBridge.buildEpisodeJson(
+            scenes = timelineScenes,
+            niche = StoryNiche.MATALINONG_DAGA,
+            aspectRatio = VideoAspectRatio.LANDSCAPE_16_9
+        )
+        val epJson = JSONObject(episodeJsonStr)
+        assertEquals("matalinong_daga", epJson.getString("niche"))
+        assertEquals("16:9", epJson.getString("aspectRatio"))
+        assertEquals(2, epJson.getJSONArray("scenes").length())
+
+        val loadEpisodeJs = WebViewFrameRenderer.buildLoadEpisodeJsonScript(episodeJsonStr)
+        assertTrue(loadEpisodeJs.contains("window.loadEpisodeJSON"))
+
+        // 5. RenderBatchItem roundtrip preserves selected StoryNiche
+        val batchItems = listOf(
+            RenderBatchItem(
+                topic = "Nerve Signal Test",
+                style = AnimationStyle.ATMOSPHERIC_2D_STORY,
+                durationSec = 30,
+                voiceIdOverride = "v1",
+                productionMode = ProductionMode.FULL_AI_STORY,
+                importedClipUris = emptyList(),
+                scriptSourceModeOverride = ScriptSourceMode.CUSTOM_LLM,
+                directScriptOverride = "",
+                niche = StoryNiche.ZACK_EXPLAINER
+            )
+        )
+        val roundtrip = VideoGenerationService.deserializeBatchItemsFromJson(
+            VideoGenerationService.serializeBatchItemsToJson(batchItems)
+        )
+        assertEquals(1, roundtrip.size)
+        assertEquals(StoryNiche.ZACK_EXPLAINER, roundtrip[0].niche)
+
+        // 6. Strict Client-Side TTS Digit Sanitizer guarantees ZERO ASCII digits sent to ElevenLabs
+        val digitInputs = listOf(
+            "₱1,500.50 ang natipid ko!",
+            "3.5% lang ang tubo pero 500k ang kita at 2M sa bangko.",
+            "Alas 3:30 ng hapon, 1st place sa COVID-19 quiz!",
+            "Code A1B2C3 na may 0 at 9.",
+            "[whispers] 2025 na, gumising ka!"
+        )
+        val anyDigit = Regex("[0-9]")
+        digitInputs.forEach { sample ->
+            val normalized = TagalogPhoneticNormalizer.normalize(sample)
+            assertFalse("Unexpected digit in '$normalized' from '$sample'", anyDigit.containsMatchIn(normalized))
+        }
+        val whispered = TagalogPhoneticNormalizer.normalize("[whispers] 2025 na!")
+        assertTrue(whispered.startsWith("[whispers]"))
+        assertFalse(anyDigit.containsMatchIn(whispered))
+
+        // 7. Temporary PNG frames, render mp4s, toonforge_work dirs, and toonforge_batch jsons get cleaned
+        val tempRoot = kotlin.io.path.createTempDirectory("toonforge_clean_test").toFile()
+        try {
+            val framesDir = File(tempRoot, "frames").apply { mkdirs() }
+            File(framesDir, "frame_001.png").writeText("png")
+            val staleWorkDir = File(tempRoot, "toonforge_work_111").apply { mkdirs() }
+            File(staleWorkDir, "temp.pcm").writeText("pcm")
+            val activeWorkDir = File(tempRoot, "toonforge_work_222").apply { mkdirs() }
+            val activeFile = File(activeWorkDir, "keep.pcm").apply { writeText("keep") }
+            val strayPng = File(tempRoot, "frame_dump.png").apply { writeText("png") }
+            val strayRenderMp4 = File(tempRoot, "render_abc.mp4").apply { writeText("mp4") }
+            val staleBatchJson = File(tempRoot, "toonforge_batch_123.json").apply { writeText("[]") }
+
+            DeterministicVideoExporter.cleanupTemporaryCacheBuffers(
+                cacheDir = tempRoot,
+                activeWorkDir = activeWorkDir
+            )
+
+            assertFalse(framesDir.exists())
+            assertFalse(staleWorkDir.exists())
+            assertTrue(activeFile.exists())
+            assertFalse(strayPng.exists())
+            assertFalse(strayRenderMp4.exists())
+            assertFalse(staleBatchJson.exists())
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `threeJsOfflineAssetManifestAndWebGlPrepWork`() {
+        // 1. Offline three.min.js UMD bundle is present in Android assets and exposes THREE
+        val threeJsFile = listOf(
+            File("src/main/assets/three.min.js"),
+            File("app/src/main/assets/three.min.js")
+        ).firstOrNull { it.exists() && it.canRead() }
+        assertTrue("three.min.js must exist in assets/", threeJsFile != null)
+        val threeJsText = threeJsFile!!.readText(Charsets.UTF_8)
+        assertTrue(threeJsText.length > 100_000)
+        assertTrue(threeJsText.contains("WebGLRenderer"))
+        assertTrue(threeJsText.contains("PerspectiveCamera"))
+
+        // 2. AndroidManifest explicitly declares android:hardwareAccelerated="true" on <application> and <activity>
+        val manifestFile = listOf(
+            File("src/main/AndroidManifest.xml"),
+            File("app/src/main/AndroidManifest.xml")
+        ).firstOrNull { it.exists() && it.canRead() }
+        assertTrue("AndroidManifest.xml must exist", manifestFile != null)
+        val manifestXml = manifestFile!!.readText(Charsets.UTF_8)
+        val hwAccelMatches = Regex("android:hardwareAccelerated\\s*=\\s*\"true\"").findAll(manifestXml).count()
+        assertTrue("Expected hardwareAccelerated=true on both application and activity", hwAccelMatches >= 2)
+
+        // 3. WebViewFrameRenderer.prepareHtmlForWebView injects three.min.js and preserveDrawingBuffer shim before </head>
+        assertEquals("file:///android_asset/", WebViewFrameRenderer.ASSET_BASE_URL)
+        val customThreeHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>3D Scene</title>
+            </head>
+            <body>
+              <script>
+                const scene = new THREE.Scene();
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                window.seekToTime = function(t) {};
+              </script>
+            </body>
+            </html>
+        """.trimIndent()
+        val prepared = WebViewFrameRenderer.prepareHtmlForWebView(customThreeHtml)
+        val scriptIdx = prepared.indexOf("<script src=\"three.min.js\"></script>")
+        val headCloseIdx = prepared.indexOf("</head>")
+        assertTrue(scriptIdx >= 0)
+        assertTrue(headCloseIdx > scriptIdx)
+        assertTrue(prepared.contains("preserveDrawingBuffer=true"))
+
+        // 4. Does not double-inject three.min.js if already included
+        val alreadyIncluded = """
+            <!DOCTYPE html>
+            <html><head><script src="three.min.js"></script></head>
+            <body><script>const s = new THREE.Scene();</script></body></html>
+        """.trimIndent()
+        val preparedAlready = WebViewFrameRenderer.prepareHtmlForWebView(alreadyIncluded)
+        assertEquals(1, Regex("three\\.min\\.js").findAll(preparedAlready).count())
+        assertTrue(preparedAlready.contains("preserveDrawingBuffer=true"))
+
+        // 5. Fallback when HTML has no </head>
+        val headlessHtml = "<body><script>var r = new THREE.WebGLRenderer();</script></body>"
+        val preparedHeadless = WebViewFrameRenderer.prepareHtmlForWebView(headlessHtml)
+        assertTrue(preparedHeadless.contains("<script src=\"three.min.js\"></script>"))
+
+        // 6. studio_renderer.html stays untouched by Three.js injection and keeps all GSAP/storyboard hooks
+        val studioHtml = StudioRendererBridge.loadStudioRendererTemplate(null)
+        val preparedStudio = WebViewFrameRenderer.prepareHtmlForWebView(studioHtml)
+        assertEquals(studioHtml, preparedStudio)
+        assertTrue(studioHtml.contains("window.STORYBOARD_SCENES"))
+        assertTrue(studioHtml.contains("window.setAspectRatio"))
+        assertTrue(studioHtml.contains("window.setSceneTimings"))
+        assertTrue(studioHtml.contains("window.seekToTime"))
     }
 }

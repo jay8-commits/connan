@@ -201,10 +201,14 @@ class ElevenLabsClient(
             com.example.llm.TagalogNarrationValidator.cleanForTts(rawTagalogNarration)
         }
         com.example.llm.TagalogNarrationValidator.validateOrThrow(cleanTagalogForSpeech)
-        val normalizedText = TagalogPhoneticNormalizer.normalize(cleanTagalogForSpeech, customDictionary)
+        val normalizedText = TagalogPhoneticNormalizer.sanitizeDigitsForTts(
+            TagalogPhoneticNormalizer.normalize(cleanTagalogForSpeech, customDictionary)
+        )
         val cleanLegacyTagalog = com.example.llm.TagalogNarrationValidator.cleanForTts(rawTagalogNarration)
         val normalizedLegacyText = if (useV4Tags) {
-            TagalogPhoneticNormalizer.normalize(cleanLegacyTagalog, customDictionary)
+            TagalogPhoneticNormalizer.sanitizeDigitsForTts(
+                TagalogPhoneticNormalizer.normalize(cleanLegacyTagalog, customDictionary)
+            )
         } else {
             normalizedText
         }

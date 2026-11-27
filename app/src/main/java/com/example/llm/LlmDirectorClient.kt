@@ -3,9 +3,10 @@ package com.example.llm
 import com.example.data.BuiltInPrompts
 import com.example.model.AnimationStyle
 import com.example.model.SceneScript
+import com.example.model.StoryNiche
 import com.example.model.StudioSettings
+import com.example.model.VideoAspectRatio
 import com.example.net.SharedHttpClients
-import com.example.render.MotionHtmlDirector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -101,7 +102,9 @@ class LlmDirectorClient(
         durationSeconds: Int,
         style: AnimationStyle,
         settings: StudioSettings,
-        onStatus: (String) -> Unit
+        onStatus: (String) -> Unit,
+        niche: StoryNiche = settings.selectedNiche,
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16
     ): LlmScriptResult = withContext(Dispatchers.IO) {
         val primaryBaseUrl = UniversalModelDetector.cleanUrl(settings.effectiveLlmBaseUrl)
         val primaryApiKey = UniversalModelDetector.cleanCredential(settings.effectiveLlmApiKey)
@@ -123,15 +126,11 @@ class LlmDirectorClient(
 
         val activeCreativePrompt = settings.activeTemplate?.content
             ?: BuiltInPrompts.VIRAL_PINOY_EXPLAINER.content
-        val godSystemPrompt = MotionHtmlDirector.buildMasterContentGodPromptV2(
+        val systemPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
+            niche = niche,
             durationSeconds = durationSeconds,
-            style = style,
-            customCreativeNotes = activeCreativePrompt
-        )
-        val systemPrompt = BuiltInPrompts.composeSystemPrompt(
-            activeCreativePrompt = activeCreativePrompt,
-            durationSeconds = durationSeconds,
-            style = style
+            aspectRatio = aspectRatio,
+            activeCreativePrompt = activeCreativePrompt
         )
         val durationBudget = calculateDurationBudget(durationSeconds)
 
@@ -151,31 +150,7 @@ class LlmDirectorClient(
 
         var lastError: Throwable? = null
         for (url in candidateUrls) {
-            // Primary pass: Master Content God Prompt v2 (HTML5 + inline SVG + <script id="storyboard-json">)
-            val godAttempt = tryGodPromptHtmlPipeline(
-                providerName = "$presetLabel ($resolvedModel)",
-                url = url,
-                model = resolvedModel,
-                apiKey = primaryApiKey,
-                topic = topic,
-                durationSeconds = durationSeconds,
-                style = style,
-                godSystemPrompt = godSystemPrompt,
-                extraHeaders = extraHeaders,
-                onStatus = onStatus
-            )
-            if (godAttempt.isSuccess) return@withContext godAttempt.getOrThrow()
-
-            val godErr = godAttempt.exceptionOrNull()!!
-            if (godErr is LlmHttpException && (godErr.statusCode == 401 || godErr.statusCode == 403)) {
-                throw godErr
-            }
-            if (godErr is LlmHttpException && (godErr.statusCode == 404 || godErr.statusCode == 405)) {
-                lastError = godErr
-                continue
-            }
-
-            // Fallback pass: Batched JSON director pipeline
+            // Fast JSON-Only Multi-Niche AI Director pipeline (studio_renderer.html handles all visuals offline)
             val result = tryDirectBatchedJsonPipeline(
                 providerName = "$presetLabel ($resolvedModel)",
                 url = url,
@@ -184,6 +159,8 @@ class LlmDirectorClient(
                 topic = topic,
                 durationSeconds = durationSeconds,
                 style = style,
+                niche = niche,
+                aspectRatio = aspectRatio,
                 systemPrompt = systemPrompt,
                 durationBudget = durationBudget,
                 extraHeaders = extraHeaders,
@@ -203,89 +180,6 @@ class LlmDirectorClient(
         throw (lastError ?: IOException("LLM request failed for URL: $primaryBaseUrl | Model: $resolvedModel"))
     }
 
-    private fun tryGodPromptHtmlPipeline(
-        providerName: String,
-        url: String,
-        model: String,
-        apiKey: String,
-        topic: String,
-        durationSeconds: Int,
-        style: AnimationStyle,
-        godSystemPrompt: String,
-        extraHeaders: Map<String, String>,
-        onStatus: (String) -> Unit
-    ): Result<LlmScriptResult> {
-        val cleanModel = UniversalModelDetector.cleanCredential(model)
-        val userPrompt = """
-Create a complete, self-contained 1080x1920 vertical HTML5 + inline SVG animated Tagalog story (~${durationSeconds}s) about:
-"$topic"
-
-Visual style: ${style.displayName} (${style.subtitle}).
-Include <script id="storyboard-json" type="application/json">, progressive 4-slot gauges, leader-line pointer callouts, window.setSceneTimings(durationsArray), and window.seekToTime(seconds).
-Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
-        """.trimIndent()
-
-        val htmlCompatFlags = listOf(
-            ChatPayloadCompatFlags(includeThinking = false, includeEnableThinking = false, includeResponseFormat = false, includeStream = true),
-            ChatPayloadCompatFlags(includeThinking = false, includeEnableThinking = false, includeResponseFormat = false, includeStream = false)
-        )
-
-        var lastErr: Throwable? = null
-        for ((idx, flags) in htmlCompatFlags.withIndex()) {
-            try {
-                onStatus(
-                    if (idx == 0) "Directing HTML5/SVG God Prompt v2 via $providerName..."
-                    else "Retrying God Prompt v2 in non-streaming mode..."
-                )
-                val (choice, _) = performSingleOpenAiChatCompletion(
-                    url = url.trim(),
-                    model = cleanModel,
-                    apiKey = apiKey,
-                    systemPrompt = godSystemPrompt,
-                    userPrompt = userPrompt,
-                    extraHeaders = extraHeaders,
-                    temperature = DEFAULT_TEMPERATURE,
-                    compatFlags = flags
-                )
-                val raw = choice.content.trim()
-                if (raw.isBlank()) {
-                    lastErr = MalformedSceneJsonException("Empty God Prompt v2 response")
-                    continue
-                }
-                if (DirectStoryboardParser.looksLikeHtmlOrSvgInput(raw)) {
-                    val parsed = DirectStoryboardParser.parse(raw, style)
-                    if (parsed.scenes.isNotEmpty()) {
-                        return Result.success(
-                            LlmScriptResult(
-                                scenes = parsed.scenes,
-                                providerUsed = "$providerName • God Prompt v2",
-                                customHtmlDocument = parsed.customHtmlDocument
-                            )
-                        )
-                    }
-                }
-                val jsonParsed = runCatching { JsonSanitizer.parseAndValidateScenes(raw) }.getOrNull().orEmpty()
-                if (jsonParsed.isNotEmpty()) {
-                    return Result.success(
-                        LlmScriptResult(
-                            scenes = jsonParsed,
-                            providerUsed = "$providerName • God Prompt v2"
-                        )
-                    )
-                }
-                lastErr = MalformedSceneJsonException("LLM response was neither valid HTML5/SVG nor JSON scenes")
-            } catch (e: LlmHttpException) {
-                if (e.statusCode == 401 || e.statusCode == 403 || e.statusCode == 404 || e.statusCode == 405) {
-                    return Result.failure(e)
-                }
-                lastErr = e
-            } catch (e: Exception) {
-                lastErr = e
-            }
-        }
-        return Result.failure(lastErr ?: IOException("God Prompt v2 HTML generation failed"))
-    }
-
     private suspend fun tryDirectBatchedJsonPipeline(
         providerName: String,
         url: String,
@@ -294,6 +188,8 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
         topic: String,
         durationSeconds: Int,
         style: AnimationStyle,
+        niche: StoryNiche = StoryNiche.SA_BAYANG_ITO,
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
         systemPrompt: String,
         durationBudget: DurationBudget,
         extraHeaders: Map<String, String> = emptyMap(),
@@ -312,7 +208,7 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
 
                 for (batchRange in batches) {
                     onStatus(
-                        "Generating scenes ${batchRange.startSceneId}–${batchRange.endSceneId} of ${durationBudget.targetSceneCount} via $providerName (try $attempt/3)..."
+                        "Directing ${niche.displayName} scenes ${batchRange.startSceneId}–${batchRange.endSceneId} of ${durationBudget.targetSceneCount} via $providerName (try $attempt/3)..."
                     )
                     val batchScenes = generateSceneBatchWithRetry(
                         url = url,
@@ -321,6 +217,8 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
                         topic = topic,
                         durationSeconds = durationSeconds,
                         style = style,
+                        niche = niche,
+                        aspectRatio = aspectRatio,
                         composedSystemPrompt = systemPrompt,
                         retryHint = retryHint,
                         budget = durationBudget,
@@ -350,7 +248,12 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
                         onStatus = onStatus
                     )
                 }
-                return Result.success(LlmScriptResult(scenes = validatedScenes, providerUsed = providerName))
+                return Result.success(
+                    LlmScriptResult(
+                        scenes = validatedScenes.map { it.copy(storyNiche = niche) },
+                        providerUsed = "$providerName • ${niche.displayName}"
+                    )
+                )
             } catch (e: MalformedSceneJsonException) {
                 lastJsonError = e
                 delay(400)
@@ -369,6 +272,8 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
         topic: String,
         durationSeconds: Int,
         style: AnimationStyle,
+        niche: StoryNiche = StoryNiche.SA_BAYANG_ITO,
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
         composedSystemPrompt: String,
         retryHint: String,
         budget: DurationBudget,
@@ -387,7 +292,9 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
             style = style,
             budget = budget,
             batchRange = batchRange,
-            previousBatchSummary = previousBatchSummary
+            previousBatchSummary = previousBatchSummary,
+            niche = niche,
+            aspectRatio = aspectRatio
         )
 
         return try {
@@ -423,7 +330,9 @@ Output ONLY the raw HTML5 document starting with <!DOCTYPE html>.
                     style = style,
                     budget = budget,
                     batchRange = subRange,
-                    previousBatchSummary = subPrevSummary
+                    previousBatchSummary = subPrevSummary,
+                    niche = niche,
+                    aspectRatio = aspectRatio
                 )
                 val parsedSub = executeDualAttemptSceneRequest(
                     url = url,
@@ -1166,7 +1075,9 @@ MANDATORY DURATION & LENGTH CONTRACT:
             style: AnimationStyle,
             budget: DurationBudget,
             batchRange: SceneBatchRange,
-            previousBatchSummary: String = ""
+            previousBatchSummary: String = "",
+            niche: StoryNiche = StoryNiche.SA_BAYANG_ITO,
+            aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16
         ): String {
             val isFullScript = batchRange.startSceneId == 1 && batchRange.endSceneId == budget.targetSceneCount
             val batchTargetChars = ((budget.targetSpokenChars.toDouble() * batchRange.count) / budget.targetSceneCount.coerceAtLeast(1))
@@ -1183,9 +1094,11 @@ MANDATORY DURATION & LENGTH CONTRACT:
 
             return buildString {
                 append("Topic: $topic\n")
-                append("Visual Rendering Style (aesthetic & camera feel ONLY—do NOT override story topic/characters): ${style.displayName}\n")
+                append("Story Niche: ${niche.displayName} (${niche.nicheKey})\n")
+                append("Target Aspect Ratio: ${aspectRatio.ratioKey}\n")
+                append("Visual Accent Preference: ${style.displayName}\n")
                 append("Target Full Video Duration: ${durationSeconds} seconds (${budget.targetSceneCount} total scenes)\n")
-                append("CURRENT BATCH SCOPE: Generate ONLY Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} (${batchRange.count} scenes), using scene_id ${batchRange.startSceneId} through ${batchRange.endSceneId}.\n")
+                append("CURRENT BATCH SCOPE: Generate ONLY Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} (${batchRange.count} scenes), using id ${batchRange.startSceneId} through ${batchRange.endSceneId}.\n")
                 append("Story Pacing Guidance: $storyPhaseGuidance\n\n")
                 if (previousBatchSummary.isNotBlank()) {
                     append("--- PREVIOUS BATCH CONTINUITY SUMMARY ---\n")
@@ -1193,19 +1106,17 @@ MANDATORY DURATION & LENGTH CONTRACT:
                     append("\n\n")
                 }
                 append("--- GRANULAR JSON SCENE PRODUCTION RULES ---\n")
-                append("Produce Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} directly as valid json with ZERO shortcuts:\n")
-                append("- Every tagalog_narration MUST be natural conversational Filipino/Tagalog with >= $MIN_WORDS_PER_NARRATION words AND >= $MIN_CHARS_PER_NARRATION chars.\n")
-                append("- Every visual_description MUST have >= $MIN_WORDS_PER_VISUAL_DESCRIPTION vivid English words detailing (1) main subject & exact action/pose, (2) facial expression & hand prop, (3) specific environment/foreground/background elements, and (4) lighting/atmosphere. NEVER write 'generic', 'simple background', or 'etc'.\n")
-                append("- Consecutive scenes MUST NOT repeat the same camera_motion, character_pose, or shot_framing (never use STATIC).\n")
-                append("- TOPIC-FIRST RULE: Derive 100% of characters, wardrobe, environment_theme, props, cutaway_diagram_prompt, and diagrams strictly from the Topic.\n")
-                append("- BESPOKE SVG ARTWORK (`custom_svg`): Whenever possible, output a complete self-contained `<svg viewBox=\"0 0 1080 1920\" xmlns=\"http://www.w3.org/2000/svg\">...</svg>` in `custom_svg` that literally illustrates the exact scene in `visual_description` using layered paths, gradients, crisp `2.5px` dark outlines (`#141821`), and animated `<circle class=\"flow-pulse\" data-path=\"#flow-1\" .../>` flow pulses.\n\n")
+                append("Produce Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} directly as valid json with ZERO shortcuts (NO HTML/CSS/SVG output):\n")
+                append("- Output Studio Choreography json objects with id, duration, speaker, bgTheme, camera ({preset, zoom}), actors ([{role, x, y, scale, targetScale, facing, mood, action}]), fx, callout, and narration.\n")
+                append("- Every narration MUST be natural conversational Filipino/Tagalog with >= $MIN_WORDS_PER_NARRATION words, >= $MIN_CHARS_PER_NARRATION chars, and ZERO digits (0-9 spelled out in Tagalog words).\n")
+                append("- Vary camera.preset across consecutive scenes (push_in, wide, close_up, pan_right, impact_shake) and match actors/bgTheme/fx cleanly to \"${niche.displayName}\".\n\n")
                 if (isFullScript) {
                     append(buildDurationContractBlock(budget))
                     append("\n\n")
                 } else {
-                    append("BATCH LENGTH BUDGET: Combined tagalog_narration across Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} should be ~$batchTargetChars chars (between $batchMinChars and $batchMaxChars chars).\n\n")
+                    append("BATCH LENGTH BUDGET: Combined narration across Scenes ${batchRange.startSceneId}..${batchRange.endSceneId} should be ~$batchTargetChars chars (between $batchMinChars and $batchMaxChars chars).\n\n")
                 }
-                append("Return valid json containing ONLY scenes ${batchRange.startSceneId}..${batchRange.endSceneId} (${batchRange.count} scene objects) inside {\"scenes\": [...]}.\n")
+                append("Return valid json containing ONLY scenes ${batchRange.startSceneId}..${batchRange.endSceneId} (${batchRange.count} scene objects) inside {\"title\": \"...\", \"niche\": \"${niche.nicheKey}\", \"aspectRatio\": \"${aspectRatio.ratioKey}\", \"scenes\": [...]}.\n")
                 append(STRICT_JSON_OUTPUT_FOOTER)
             }
         }

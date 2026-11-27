@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="utf-8" />
+<meta id="vp-meta" name="viewport" content="width=1080, height=1920, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>ToonForge Studio Engine (GSAP + 2.5D Vector)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #070A12;
+    font-family: 'Montserrat', 'Roboto', 'Noto Sans', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg#stage {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background: #070A12;
+  }
+  .hud-title {
+    font-family: 'Montserrat', 'Roboto', Arial, sans-serif;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+  }
+  .callout-txt {
+    font-family: 'Montserrat', 'Roboto Black', Arial, sans-serif;
+    font-weight: 900;
+    letter-spacing: 1.2px;
+  }
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Sky & Theme Gradients -->
+    <linearGradient id="sky-town-day" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1D4ED8" />
+      <stop offset="52%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#BAE6FD" />
+    </linearGradient>
+    <linearGradient id="sky-town-storm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#050814" />
+      <stop offset="52%" stop-color="#1E293B" />
+      <stop offset="100%" stop-color="#334155" />
+    </linearGradient>
+    <linearGradient id="sky-town-sunset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#311042" />
+      <stop offset="50%" stop-color="#BE185D" />
+      <stop offset="100%" stop-color="#FB923C" />
+    </linearGradient>
+    <linearGradient id="sky-hallway" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="55%" stop-color="#1E3A5F" />
+      <stop offset="100%" stop-color="#334155" />
+    </linearGradient>
+    <linearGradient id="sky-bedroom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#070B19" />
+      <stop offset="60%" stop-color="#172554" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </linearGradient>
+    <linearGradient id="sky-tunnel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#03050B" />
+      <stop offset="50%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#1F2937" />
+    </linearGradient>
+    <linearGradient id="sky-anatomy" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#040814" />
+      <stop offset="50%" stop-color="#0B192C" />
+      <stop offset="100%" stop-color="#102A43" />
+    </linearGradient>
+
+    <!-- Soft Rim-Lighting & 2.5D Shading -->
+    <linearGradient id="skin-warm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFE0C2" />
+      <stop offset="65%" stop-color="#F2B88A" />
+      <stop offset="100%" stop-color="#D49263" />
+    </linearGradient>
+    <linearGradient id="skin-deep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E7B386" />
+      <stop offset="65%" stop-color="#C98A5B" />
+      <stop offset="100%" stop-color="#9E623A" />
+    </linearGradient>
+    <radialGradient id="ao-shadow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#030712" stop-opacity="0.62" />
+      <stop offset="70%" stop-color="#030712" stop-opacity="0.24" />
+      <stop offset="100%" stop-color="#030712" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="rim-light-grad" cx="50%" cy="35%" r="72%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.06" />
+      <stop offset="72%" stop-color="#0B1120" stop-opacity="0.0" />
+      <stop offset="100%" stop-color="#03060D" stop-opacity="0.52" />
+    </radialGradient>
+    <radialGradient id="sunbeam-grad" cx="50%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#FEF08A" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#FEF08A" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="anatomy-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.45" />
+      <stop offset="70%" stop-color="#0EA5E9" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#0EA5E9" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="brain-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F9A8D4" />
+      <stop offset="60%" stop-color="#EC4899" />
+      <stop offset="100%" stop-color="#9D174D" />
+    </linearGradient>
+    <linearGradient id="heart-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FB7185" />
+      <stop offset="55%" stop-color="#E11D48" />
+      <stop offset="100%" stop-color="#881337" />
+    </linearGradient>
+    <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <clipPath id="stage-clip">
+      <rect id="stage-clip-rect" x="0" y="0" width="1080" height="1920" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#stage-clip)">
+    <!-- Camera Transform Group Driven by GSAP -->
+    <g id="camera-root">
+      <g id="bg-sky"></g>
+      <g id="bg-far"></g>
+      <g id="bg-mid"></g>
+      <g id="bg-props"></g>
+      <g id="fx-back-layer"></g>
+      <g id="stage-actors"></g>
+      <g id="fx-front-layer"></g>
+    </g>
+
+    <!-- Cinema Rim & Vignette Overlay -->
+    <rect id="rim-light-rect" x="0" y="0" width="1080" height="1920" fill="url(#rim-light-grad)" pointer-events="none" />
+
+    <!-- Safe-Zone Top HUD ONLY (y=155 progress bar, y=205 series pill; y=1320..1920 strictly clear!) -->
+    <g id="hud-top-layer" pointer-events="none"></g>
+    <g id="callout-layer" pointer-events="none"></g>
+  </g>
+</svg>
+
+<script id="gsap-inline">
+/* Offline Deterministic GSAP-Compatible Core Timeline Engine (zero network dependency) */
+(function(global) {
+  "use strict";
+
+  var EASES = {
+    "none": function(p) { return p; },
+    "linear": function(p) { return p; },
+    "power1.out": function(p) { return 1 - Math.pow(1 - p, 2); },
+    "power1.in": function(p) { return p * p; },
+    "power1.inOut": function(p) { return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; },
+    "power2.out": function(p) { return 1 - Math.pow(1 - p, 3); },
+    "power2.in": function(p) { return p * p * p; },
+    "power2.inOut": function(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; },
+    "power3.out": function(p) { return 1 - Math.pow(1 - p, 4); },
+    "sine.inOut": function(p) { return -(Math.cos(Math.PI * p) - 1) / 2; },
+    "back.out": function(p) {
+      var c1 = 1.70158, c3 = c1 + 1;
+      return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+    },
+    "back.inOut": function(p) {
+      var c1 = 1.70158, c2 = c1 * 1.525;
+      return p < 0.5
+        ? (Math.pow(2 * p, 2) * ((c2 + 1) * 2 * p - c2)) / 2
+        : (Math.pow(2 * p - 2, 2) * ((c2 + 1) * (p * 2 - 2) + c2) + 2) / 2;
+    },
+    "elastic.out": function(p) {
+      if (p === 0 || p === 1) return p;
+      var c4 = (2 * Math.PI) / 3;
+      return Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * c4) + 1;
+    },
+    "bounce.out": function(p) {
+      var n1 = 7.5625, d1 = 2.75;
+      if (p < 1 / d1) return n1 * p * p;
+      if (p < 2 / d1) return n1 * (p -= 1.5 / d1) * p + 0.75;
+      if (p < 2.5 / d1) return n1 * (p -= 2.25 / d1) * p + 0.9375;
+      return n1 * (p -= 2.625 / d1) * p + 0.984375;
+    }
+  };
+
+  function resolveEase(easeVal) {
+    if (typeof easeVal === "function") return easeVal;
+    if (typeof easeVal === "string") {
+      var key = easeVal.trim();
+      if (EASES[key]) return EASES[key];
+      var base = key.split("(")[0];
+      if (EASES[base]) return EASES[base];
+    }
+    return EASES["power2.out"];
+  }
+
+  function resolveTargets(target) {
+    if (!target) return [];
+    if (Array.isArray(target)) return target.filter(Boolean);
+    if (typeof target === "string") {
+      var list = document.querySelectorAll(target);
+      return Array.prototype.slice.call(list);
+    }
+    return [target];
+  }
+
+  function getState(el) {
+    if (!el.__gsap) {
+      el.__gsap = {
+        x: 0, y: 0,
+        scale: 1, scaleX: 1, scaleY: 1,
+        rotation: 0, skewX: 0,
+        ox: 0, oy: 0,
+        opacity: 1
+      };
+    }
+    return el.__gsap;
+  }
+
+  function applyState(el) {
+    if (!el || !el.setAttribute) return;
+    var s = getState(el);
+    var sx = s.scale * s.scaleX;
+    var sy = s.scale * s.scaleY;
+    var hasOrigin = (s.ox !== 0 || s.oy !== 0);
+    var t = "";
+    if (s.x !== 0 || s.y !== 0) {
+      t += "translate(" + s.x.toFixed(2) + ", " + s.y.toFixed(2) + ") ";
+    }
+    if (hasOrigin) {
+      t += "translate(" + s.ox.toFixed(2) + ", " + s.oy.toFixed(2) + ") ";
+    }
+    if (s.rotation !== 0) {
+      t += "rotate(" + s.rotation.toFixed(2) + ") ";
+    }
+    if (s.skewX !== 0) {
+      t += "skewX(" + s.skewX.toFixed(2) + ") ";
+    }
+    if (sx !== 1 || sy !== 1) {
+      t += "scale(" + sx.toFixed(4) + ", " + sy.toFixed(4) + ") ";
+    }
+    if (hasOrigin) {
+      t += "translate(" + (-s.ox).toFixed(2) + ", " + (-s.oy).toFixed(2) + ") ";
+    }
+    t = t.trim();
+    if (el.tagName && el.tagName.toLowerCase() !== "div" && el.tagName.toLowerCase() !== "span") {
+      if (t) el.setAttribute("transform", t);
+      else el.removeAttribute("transform");
+      if (s.opacity !== 1) el.setAttribute("opacity", Math.max(0, Math.min(1, s.opacity)).toFixed(3));
+      else el.removeAttribute("opacity");
+    } else if (el.style) {
+      el.style.opacity = String(Math.max(0, Math.min(1, s.opacity)));
+    }
+  }
+
+  var RESERVED_KEYS = {
+    duration: 1, delay: 1, ease: 1, stagger: 1,
+    repeat: 1, yoyo: 1, attr: 1, onUpdate: 1, immediateRender: 1
+  };
+  var TRANSFORM_KEYS = ["x", "y", "scale", "scaleX", "scaleY", "rotation", "skewX", "ox", "oy", "opacity"];
+
+  function Timeline(opts) {
+    this._opts = opts || {};
+    this._tweens = [];
+    this._callbacks = [];
+    this._totalDuration = 0;
+    this._time = 0;
+  }
+
+  Timeline.prototype._parsePosition = function(pos) {
+    if (typeof pos === "number" && !isNaN(pos)) return Math.max(0, pos);
+    if (typeof pos === "string") {
+      var trimmed = pos.trim();
+      if (trimmed.indexOf("+=") === 0) {
+        return Math.max(0, this._totalDuration + parseFloat(trimmed.slice(2)));
+      }
+      if (trimmed.indexOf("-=") === 0) {
+        return Math.max(0, this._totalDuration - parseFloat(trimmed.slice(2)));
+      }
+      if (trimmed.indexOf("<") === 0) {
+        var lastStart = this._tweens.length > 0 ? this._tweens[this._tweens.length - 1].start : 0;
+        var offset = trimmed.length > 1 ? parseFloat(trimmed.slice(1)) || 0 : 0;
+        return Math.max(0, lastStart + offset);
+      }
+    }
+    return this._totalDuration;
+  };
+
+  Timeline.prototype.set = function(target, vars, pos) {
+    var v = Object.assign({}, vars || {}, { duration: 0 });
+    return this.to(target, v, pos);
+  };
+
+  Timeline.prototype.to = function(target, vars, pos) {
+    return this._addTween("to", target, null, vars || {}, pos);
+  };
+
+  Timeline.prototype.from = function(target, vars, pos) {
+    return this._addTween("from", target, vars || {}, null, pos);
+  };
+
+  Timeline.prototype.fromTo = function(target, fromVars, toVars, pos) {
+    return this._addTween("fromTo", target, fromVars || {}, toVars || {}, pos);
+  };
+
+  Timeline.prototype.add = function(item, pos) {
+    var start = this._parsePosition(pos);
+    if (typeof item === "function") {
+      this._callbacks.push({ start: start, fn: item });
+    } else if (item && typeof item.seek === "function") {
+      var subDur = item.duration();
+      this._callbacks.push({
+        start: start,
+        duration: subDur,
+        subTimeline: item
+      });
+      if (start + subDur > this._totalDuration) {
+        this._totalDuration = start + subDur;
+      }
+    }
+    return this;
+  };
+
+  Timeline.prototype._addTween = function(mode, target, fromVars, toVars, pos) {
+    var targets = resolveTargets(target);
+    var activeVars = toVars || fromVars || {};
+    var dur = typeof activeVars.duration === "number" ? Math.max(0, activeVars.duration) : 0.5;
+    var delay = typeof activeVars.delay === "number" ? activeVars.delay : 0;
+    var stagger = typeof activeVars.stagger === "number" ? activeVars.stagger : 0;
+    var repeat = typeof activeVars.repeat === "number" ? activeVars.repeat : 0;
+    var yoyo = Boolean(activeVars.yoyo);
+    var easeFn = resolveEase(activeVars.ease || this._opts.defaults && this._opts.defaults.ease);
+    var baseStart = this._parsePosition(pos) + delay;
+
+    var maxEnd = baseStart;
+    for (var i = 0; i < targets.length; i++) {
+      var el = targets[i];
+      var sStart = baseStart + i * stagger;
+      var props = {};
+      var key;
+      for (var k = 0; k < TRANSFORM_KEYS.length; k++) {
+        key = TRANSFORM_KEYS[k];
+        var hasTo = toVars && typeof toVars[key] === "number";
+        var hasFrom = fromVars && typeof fromVars[key] === "number";
+        if (hasTo || hasFrom) {
+          var cur = getState(el)[key];
+          var startVal = mode === "from" ? fromVars[key] : (mode === "fromTo" && hasFrom ? fromVars[key] : cur);
+          var endVal = mode === "from" ? cur : toVars[key];
+          props[key] = { from: startVal, to: endVal };
+        }
+      }
+      var attrProps = {};
+      var srcAttr = (toVars && toVars.attr) || (fromVars && fromVars.attr);
+      if (srcAttr) {
+        for (var ak in srcAttr) {
+          if (Object.prototype.hasOwnProperty.call(srcAttr, ak)) {
+            var aTo = toVars && toVars.attr && toVars.attr[ak];
+            var aFrom = fromVars && fromVars.attr && fromVars.attr[ak];
+            var aCur = parseFloat(el.getAttribute(ak) || "0") || 0;
+            attrProps[ak] = {
+              from: mode === "from" ? aFrom : (mode === "fromTo" && aFrom !== undefined ? aFrom : aCur),
+              to: mode === "from" ? aCur : aTo
+            };
+          }
+        }
+      }
+      var totalSpan = repeat > 0 ? dur * (repeat + 1) : dur;
+      if (sStart + totalSpan > maxEnd) maxEnd = sStart + totalSpan;
+      this._tweens.push({
+        el: el,
+        start: sStart,
+        duration: dur,
+        repeat: repeat,
+        yoyo: yoyo,
+        ease: easeFn,
+        props: props,
+        attrProps: attrProps,
+        onUpdate: activeVars.onUpdate || null
+      });
+    }
+    if (maxEnd > this._totalDuration) {
+      this._totalDuration = maxEnd;
+    }
+    return this;
+  };
+
+  Timeline.prototype.duration = function() {
+    return this._totalDuration;
+  };
+
+  Timeline.prototype.clear = function() {
+    this._tweens = [];
+    this._callbacks = [];
+    this._totalDuration = 0;
+    this._time = 0;
+    return this;
+  };
+
+  Timeline.prototype.seek = function(seconds) {
+    var t = Math.max(0, Math.min(this._totalDuration || 0, Number(seconds) || 0));
+    this._time = t;
+    // Reset touched properties to their earliest defined initial values so backward scrubbing is 100% deterministic
+    var initializedProps = [];
+    for (var i = 0; i < this._tweens.length; i++) {
+      var tw0 = this._tweens[i];
+      var st0 = getState(tw0.el);
+      for (var k0 in tw0.props) {
+        if (Object.prototype.hasOwnProperty.call(tw0.props, k0)) {
+          var marker = k0 + "_" + i;
+          var already = false;
+          for (var m = 0; m < initializedProps.length; m++) {
+            if (initializedProps[m].el === tw0.el && initializedProps[m].key === k0) {
+              already = true;
+              break;
+            }
+          }
+          if (!already) {
+            st0[k0] = tw0.props[k0].from;
+            initializedProps.push({ el: tw0.el, key: k0 });
+          }
+        }
+      }
+      applyState(tw0.el);
+    }
+    for (var j = 0; j < this._tweens.length; j++) {
+      var tween = this._tweens[j];
+      if (t < tween.start) continue;
+
+      var localT = t - tween.start;
+      var prog = 1;
+      if (tween.duration > 0) {
+        if (tween.repeat > 0) {
+          var cycle = Math.floor(localT / tween.duration);
+          var clampedCycle = Math.min(tween.repeat, Math.max(0, cycle));
+          var rem = (localT - clampedCycle * tween.duration) / tween.duration;
+          if (localT >= tween.duration * (tween.repeat + 1)) {
+            rem = 1;
+          }
+          prog = (tween.yoyo && clampedCycle % 2 === 1) ? (1 - rem) : rem;
+        } else {
+          prog = Math.max(0, Math.min(1, localT / tween.duration));
+        }
+      } else {
+        prog = t >= tween.start ? 1 : 0;
+      }
+
+      var eased = tween.ease(prog);
+      var st = getState(tween.el);
+      for (var pKey in tween.props) {
+        if (Object.prototype.hasOwnProperty.call(tween.props, pKey)) {
+          var spec = tween.props[pKey];
+          st[pKey] = spec.from + (spec.to - spec.from) * eased;
+        }
+      }
+      applyState(tween.el);
+
+      for (var ak in tween.attrProps) {
+        if (Object.prototype.hasOwnProperty.call(tween.attrProps, ak)) {
+          var aspec = tween.attrProps[ak];
+          if (typeof aspec.from === "number" && typeof aspec.to === "number") {
+            var val = aspec.from + (aspec.to - aspec.from) * eased;
+            tween.el.setAttribute(ak, val.toFixed(2));
+          } else if (eased >= 0.5 && aspec.to !== undefined) {
+            tween.el.setAttribute(ak, String(aspec.to));
+          }
+        }
+      }
+      if (tween.onUpdate) tween.onUpdate(eased);
+    }
+
+    for (var c = 0; c < this._callbacks.length; c++) {
+      var cb = this._callbacks[c];
+      if (cb.subTimeline) {
+        cb.subTimeline.seek(Math.max(0, t - cb.start));
+      } else if (cb.fn && t >= cb.start) {
+        cb.fn(t);
+      }
+    }
+    return this;
+  };
+
+  var gsapApi = {
+    timeline: function(opts) { return new Timeline(opts); },
+    set: function(target, vars) {
+      var tl = new Timeline();
+      tl.set(target, vars, 0);
+      tl.seek(0);
+      return tl;
+    },
+    to: function(target, vars) {
+      var tl = new Timeline();
+      tl.to(target, vars, 0);
+      return tl;
+    },
+    fromTo: function(target, fromVars, toVars) {
+      var tl = new Timeline();
+      tl.fromTo(target, fromVars, toVars, 0);
+      return tl;
+    },
+    resetEl: function(el) {
+      if (!el) return;
+      el.__gsap = {
+        x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1,
+        rotation: 0, skewX: 0, ox: 0, oy: 0, opacity: 1
+      };
+      applyState(el);
+    }
+  };
+
+  global.gsap = gsapApi;
+})(window);
+</script>
+
+<script id="studio-engine">
+(function() {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+
+  var STAGE_W = 1080;
+  var STAGE_H = 1920;
+  var IS_WIDE = false;
+
+  var EPISODE = {
+    title: "ToonForge Studio",
+    niche: "sa_bayang_ito",
+    aspectRatio: "9:16",
+    scenes: []
+  };
+
+  window.STORYBOARD_SCENES = [];
+  window.masterTimeline = gsap.timeline({ paused: true });
+
+  var sceneTimings = []; // { startSec, endSec, durationSec }
+  var totalDurationSec = 4.0;
+  var currentSeconds = 0.0;
+  var activeSceneIdx = -1;
+
+  var elStage = document.getElementById("stage");
+  var elVpMeta = document.getElementById("vp-meta");
+  var elStageClipRect = document.getElementById("stage-clip-rect");
+  var elRimLight = document.getElementById("rim-light-rect");
+  var elCamera = document.getElementById("camera-root");
+  var elBgSky = document.getElementById("bg-sky");
+  var elBgFar = document.getElementById("bg-far");
+  var elBgMid = document.getElementById("bg-mid");
+  var elBgProps = document.getElementById("bg-props");
+  var elFxBack = document.getElementById("fx-back-layer");
+  var elActors = document.getElementById("stage-actors");
+  var elFxFront = document.getElementById("fx-front-layer");
+  var elHudTop = document.getElementById("hud-top-layer");
+  var elCallout = document.getElementById("callout-layer");
+
+  function clearNode(node) {
+    while (node && node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function svgEl(tag, attrs, parent) {
+    var el = document.createElementNS(NS, tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, k) && attrs[k] !== null && attrs[k] !== undefined) {
+          el.setAttribute(k, String(attrs[k]));
+        }
+      }
+    }
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+
+  function hashStr(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function seededRand(seed) {
+    var x = seed || 1;
+    return function() {
+      x = (x * 1664525 + 1013904223) >>> 0;
+      return x / 4294967296;
+    };
+  }
+
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function applyStageDimensions() {
+    IS_WIDE = STAGE_W > STAGE_H;
+    if (elVpMeta) {
+      elVpMeta.setAttribute("content", "width=" + STAGE_W + ", height=" + STAGE_H + ", initial-scale=1.0, maximum-scale=1.0, user-scalable=no");
+    }
+    if (elStage) elStage.setAttribute("viewBox", "0 0 " + STAGE_W + " " + STAGE_H);
+    if (elStageClipRect) {
+      elStageClipRect.setAttribute("width", STAGE_W);
+      elStageClipRect.setAttribute("height", STAGE_H);
+    }
+    if (elRimLight) {
+      elRimLight.setAttribute("width", STAGE_W);
+      elRimLight.setAttribute("height", STAGE_H);
+    }
+  }
+
+  /* ======================== ENVIRONMENT PARALLAX ENGINE ======================== */
+  function renderEnvironment(bgTheme) {
+    clearNode(elBgSky);
+    clearNode(elBgFar);
+    clearNode(elBgMid);
+    clearNode(elBgProps);
+
+    var theme = String(bgTheme || "town_day").toLowerCase();
+    var skyId = "url(#sky-town-day)";
+    if (theme === "town_storm") skyId = "url(#sky-town-storm)";
+    else if (theme === "town_sunset") skyId = "url(#sky-town-sunset)";
+    else if (theme === "school_hallway") skyId = "url(#sky-hallway)";
+    else if (theme === "bedroom_night") skyId = "url(#sky-bedroom)";
+    else if (theme === "dark_tunnel") skyId = "url(#sky-tunnel)";
+    else if (theme === "anatomy_lab") skyId = "url(#sky-anatomy)";
+
+    // Oversized sky so camera shake/zoom never exposes edges
+    svgEl("rect", { x: -320, y: -320, width: STAGE_W + 640, height: STAGE_H + 640, fill: skyId }, elBgSky);
+
+    var horizonY = Math.round(STAGE_H * 0.68);
+
+    if (theme === "town_day" || theme === "town_storm" || theme === "town_sunset") {
+      var isStorm = theme === "town_storm";
+      var isSunset = theme === "town_sunset";
+      // Sun / Moon
+      if (!isStorm) {
+        var sunX = Math.round(STAGE_W * 0.78);
+        var sunY = Math.round(STAGE_H * (isSunset ? 0.34 : 0.22));
+        svgEl("circle", { cx: sunX, cy: sunY, r: isSunset ? 135 : 95, fill: isSunset ? "#FDE047" : "#FEF9C3", opacity: isSunset ? "0.78" : "0.92", filter: "url(#soft-glow)" }, elBgSky);
+      }
+      // Distant mountains
+      var mtnColor = isStorm ? "#0F172A" : (isSunset ? "#581C87" : "#38BDF8");
+      var mtnPath = "M -300 " + horizonY + " L 140 " + (horizonY - 260) + " L 460 " + (horizonY - 120) + " L 820 " + (horizonY - 310) + " L 1280 " + (horizonY - 160) + " L " + (STAGE_W + 320) + " " + (horizonY - 250) + " L " + (STAGE_W + 320) + " " + (horizonY + 120) + " L -300 " + (horizonY + 120) + " Z";
+      svgEl("path", { d: mtnPath, fill: mtnColor, opacity: "0.72" }, elBgFar);
+
+      // Barrio / Town Houses Silhouettes & Windows
+      var houseBaseY = horizonY;
+      var houseFill = isStorm ? "#1E293B" : (isSunset ? "#3B0764" : "#1E3A8A");
+      var winFill = isStorm ? "#FACC15" : (isSunset ? "#FDE047" : "#E0F2FE");
+      var stepX = 240;
+      for (var hx = -180; hx < STAGE_W + 220; hx += stepX) {
+        var hH = 190 + ((Math.abs(hx) * 37) % 130);
+        var hW = 195;
+        svgEl("rect", { x: hx, y: houseBaseY - hH, width: hW, height: hH + 20, rx: 8, fill: houseFill, stroke: "#0F172A", "stroke-width": 4 }, elBgMid);
+        svgEl("polygon", {
+          points: (hx - 14) + "," + (houseBaseY - hH + 4) + " " + (hx + hW * 0.5) + "," + (houseBaseY - hH - 72) + " " + (hx + hW + 14) + "," + (houseBaseY - hH + 4),
+          fill: isStorm ? "#0F172A" : (isSunset ? "#7E22CE" : "#1D4ED8"),
+          stroke: "#0F172A", "stroke-width": 4
+        }, elBgMid);
+        svgEl("rect", { x: hx + 32, y: houseBaseY - hH + 46, width: 42, height: 46, rx: 5, fill: winFill, opacity: isStorm ? "0.85" : "0.7" }, elBgMid);
+        svgEl("rect", { x: hx + 114, y: houseBaseY - hH + 46, width: 42, height: 46, rx: 5, fill: winFill, opacity: isStorm ? "0.72" : "0.65" }, elBgMid);
+      }
+
+      // Road & Sidewalk Ground Plane
+      var roadColor = isStorm ? "#0B1120" : (isSunset ? "#2E1065" : "#334155");
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: STAGE_H - horizonY + 320, fill: roadColor }, elBgProps);
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: 22, fill: isStorm ? "#1E293B" : "#94A3B8" }, elBgProps);
+      // Road dashed markings
+      for (var dx = -120; dx < STAGE_W + 240; dx += 180) {
+        svgEl("rect", { x: dx, y: horizonY + 120, width: 96, height: 14, rx: 7, fill: "#FACC15", opacity: "0.72" }, elBgProps);
+      }
+      // Drifting clouds container
+      var cloudColor = isStorm ? "#334155" : (isSunset ? "#FDBA74" : "#FFFFFF");
+      for (var c = 0; c < 4; c++) {
+        var cg = svgEl("g", { id: "env-cloud-" + c, opacity: isStorm ? "0.65" : "0.85" }, elBgFar);
+        var cx = 150 + c * 320;
+        var cy = Math.round(STAGE_H * (0.14 + (c % 2) * 0.08));
+        svgEl("ellipse", { cx: cx, cy: cy, rx: 110, ry: 42, fill: cloudColor }, cg);
+        svgEl("ellipse", { cx: cx - 55, cy: cy + 12, rx: 70, ry: 32, fill: cloudColor }, cg);
+        svgEl("ellipse", { cx: cx + 60, cy: cy + 10, rx: 68, ry: 30, fill: cloudColor }, cg);
+      }
+    } else if (theme === "school_hallway") {
+      // Corridor perspective walls & lockers
+      svgEl("polygon", { points: "-200,-100 " + (STAGE_W * 0.25) + "," + (STAGE_H * 0.25) + " " + (STAGE_W * 0.25) + "," + horizonY + " -200," + (STAGE_H + 100), fill: "#1E293B", stroke: "#0F172A", "stroke-width": 4 }, elBgFar);
+      svgEl("polygon", { points: (STAGE_W + 200) + ",-100 " + (STAGE_W * 0.75) + "," + (STAGE_H * 0.25) + " " + (STAGE_W * 0.75) + "," + horizonY + " " + (STAGE_W + 200) + "," + (STAGE_H + 100), fill: "#1E293B", stroke: "#0F172A", "stroke-width": 4 }, elBgFar);
+      // Lockers left & right
+      for (var lk = 0; lk < 4; lk++) {
+        var lx = 40 + lk * 68;
+        var rx = STAGE_W - 104 - lk * 68;
+        svgEl("rect", { x: lx, y: STAGE_H * 0.28, width: 58, height: horizonY - STAGE_H * 0.28, rx: 4, fill: "#2563EB", stroke: "#0F172A", "stroke-width": 3 }, elBgMid);
+        svgEl("rect", { x: rx, y: STAGE_H * 0.28, width: 58, height: horizonY - STAGE_H * 0.28, rx: 4, fill: "#2563EB", stroke: "#0F172A", "stroke-width": 3 }, elBgMid);
+      }
+      // Floor tiles
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: STAGE_H - horizonY + 320, fill: "#475569" }, elBgProps);
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: 16, fill: "#94A3B8" }, elBgProps);
+    } else if (theme === "bedroom_night") {
+      // Cozy night room, window with moonlight, desk & bed
+      var winX = Math.round(STAGE_W * 0.5 - 150);
+      var winY = Math.round(STAGE_H * 0.22);
+      svgEl("rect", { x: winX, y: winY, width: 300, height: 260, rx: 14, fill: "#0F172A", stroke: "#475569", "stroke-width": 10 }, elBgMid);
+      svgEl("circle", { cx: winX + 210, cy: winY + 75, r: 42, fill: "#FEF08A", opacity: "0.85" }, elBgMid);
+      svgEl("line", { x1: winX + 150, y1: winY, x2: winX + 150, y2: winY + 260, stroke: "#475569", "stroke-width": 8 }, elBgMid);
+      svgEl("line", { x1: winX, y1: winY + 130, x2: winX + 300, y2: winY + 130, stroke: "#475569", "stroke-width": 8 }, elBgMid);
+      // Warm bedside lamp glow
+      svgEl("circle", { cx: STAGE_W * 0.2, cy: horizonY - 110, r: 170, fill: "#F59E0B", opacity: "0.22", filter: "url(#soft-glow)" }, elBgMid);
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: STAGE_H - horizonY + 320, fill: "#1E1B4B" }, elBgProps);
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: 18, fill: "#4338CA", opacity: "0.65" }, elBgProps);
+    } else if (theme === "dark_tunnel") {
+      // Concentric perspective tunnel ribs
+      var cxT = STAGE_W * 0.5;
+      var cyT = STAGE_H * 0.48;
+      for (var ring = 6; ring >= 1; ring--) {
+        var rRx = ring * (IS_WIDE ? 170 : 120);
+        var rRy = ring * (IS_WIDE ? 110 : 145);
+        svgEl("ellipse", {
+          cx: cxT, cy: cyT, rx: rRx, ry: rRy,
+          fill: "none",
+          stroke: ring % 2 === 0 ? "#38BDF8" : "#334155",
+          "stroke-width": 4,
+          opacity: (0.12 + (7 - ring) * 0.08).toFixed(2)
+        }, elBgMid);
+      }
+      svgEl("ellipse", { cx: cxT, cy: cyT, rx: 140, ry: 140, fill: "#0EA5E9", opacity: "0.18", filter: "url(#soft-glow)" }, elBgFar);
+      svgEl("rect", { x: -320, y: horizonY, width: STAGE_W + 640, height: STAGE_H - horizonY + 320, fill: "#090D16" }, elBgProps);
+    } else {
+      // anatomy_lab: Zack D. Films clinical/science dark grid + holographic scanner rings
+      for (var gx = 0; gx <= STAGE_W; gx += 90) {
+        svgEl("line", { x1: gx, y1: 0, x2: gx, y2: STAGE_H, stroke: "#38BDF8", "stroke-width": 1.5, opacity: "0.10" }, elBgFar);
+      }
+      for (var gy = 0; gy <= STAGE_H; gy += 90) {
+        svgEl("line", { x1: 0, y1: gy, x2: STAGE_W, y2: gy, stroke: "#38BDF8", "stroke-width": 1.5, opacity: "0.10" }, elBgFar);
+      }
+      svgEl("circle", { cx: STAGE_W * 0.5, cy: STAGE_H * 0.46, r: IS_WIDE ? 320 : 380, fill: "url(#anatomy-glow)" }, elBgFar);
+      svgEl("circle", { cx: STAGE_W * 0.5, cy: STAGE_H * 0.46, r: IS_WIDE ? 260 : 310, fill: "none", stroke: "#38BDF8", "stroke-width": 2.5, "stroke-dasharray": "16 12", opacity: "0.35" }, elBgMid);
+      svgEl("rect", { x: -320, y: horizonY + 40, width: STAGE_W + 640, height: STAGE_H - horizonY + 320, fill: "#06101F", opacity: "0.88" }, elBgProps);
+    }
+  }
+
+  /* ======================== 2.5D LAYERED VECTOR CHARACTER & ANATOMY RIGS ======================== */
+  var ROLE_PALETTES = {
+    hero:  { shirt: "#2563EB", shirtShade: "#1E40AF", pants: "#0F172A", hair: "#111827", skin: "url(#skin-warm)", label: "HERO" },
+    lily:  { shirt: "#EC4899", shirtShade: "#BE185D", pants: "#312E81", hair: "#3B1F16", skin: "url(#skin-warm)", label: "LILY", longHair: true },
+    mayor: { shirt: "#F8FAFC", shirtShade: "#CBD5E1", pants: "#1E293B", hair: "#64748B", skin: "url(#skin-deep)", label: "MAYOR", sash: "#F59E0B" },
+    mom:   { shirt: "#10B981", shirtShade: "#047857", pants: "#1E293B", hair: "#271710", skin: "url(#skin-warm)", label: "NANAY", apron: "#FEF3C7" },
+    dad:   { shirt: "#D97706", shirtShade: "#92400E", pants: "#1F2937", hair: "#1F2937", skin: "url(#skin-deep)", label: "TATAY", mustache: true },
+    bully: { shirt: "#DC2626", shirtShade: "#991B1B", pants: "#111827", hair: "#18181B", skin: "url(#skin-deep)", label: "BULLY", broad: true },
+    cat:   { fur: "#F97316", furShade: "#C2410C", belly: "#FFF7ED", species: "cat" },
+    rat:   { fur: "#94A3B8", furShade: "#475569", belly: "#F1F5F9", species: "rat" },
+    anatomy_cutaway: { species: "anatomy" }
+  };
+
+  function buildMouthPath(shapeKey) {
+    switch (shapeKey) {
+      case "wide": return "M -18 -2 Q 0 22 18 -2 Q 0 -6 -18 -2 Z";
+      case "round": return "M -11 -2 A 11 13 0 1 0 11 -2 A 11 13 0 1 0 -11 -2 Z";
+      case "smile": return "M -16 -3 Q 0 12 16 -3 Q 0 2 -16 -3 Z";
+      default: return "M -13 0 Q 0 4 13 0";
+    }
+  }
+
+  function createActorRig(actorSpec, idx) {
+    var roleKey = String(actorSpec.role || "hero").toLowerCase();
+    var pal = ROLE_PALETTES[roleKey] || ROLE_PALETTES.hero;
+
+    var root = svgEl("g", { id: "actor-root-" + idx }, elActors);
+    // Ambient occlusion ground contact shadow
+    var aoShadow = svgEl("ellipse", {
+      id: "actor-ao-" + idx,
+      cx: 0, cy: 190, rx: 92, ry: 22,
+      fill: "url(#ao-shadow)"
+    }, root);
+
+    var bodyRig = svgEl("g", { id: "actor-body-" + idx }, root);
+
+    if (pal.species === "anatomy") {
+      // Zack D. Films 2.5D Layered Anatomy & Nervous System Cutaway Rig
+      svgEl("ellipse", { cx: 0, cy: -10, rx: 195, ry: 235, fill: "url(#anatomy-glow)" }, bodyRig);
+      // Translucent outer head/torso silhouette with rim light
+      svgEl("path", {
+        d: "M -95 -200 C -95 -285 95 -285 95 -200 C 95 -135 62 -100 58 -72 C 122 -55 150 25 142 150 L -142 150 C -150 25 -122 -55 -58 -72 C -62 -100 -95 -135 -95 -200 Z",
+        fill: "#0F172A", "fill-opacity": "0.72",
+        stroke: "#38BDF8", "stroke-width": 4
+      }, bodyRig);
+      // Glowing spinal cord & nerve branches
+      svgEl("path", {
+        d: "M 0 -120 L 0 140 M 0 -20 L -75 25 M 0 -20 L 75 25 M 0 45 L -90 88 M 0 45 L 90 88",
+        fill: "none", stroke: "#38BDF8", "stroke-width": 6, "stroke-linecap": "round", filter: "url(#soft-glow)"
+      }, bodyRig);
+      // Brain organ group
+      var brainGrp = svgEl("g", { id: "anatomy-brain-" + idx, transform: "translate(0, -185)" }, bodyRig);
+      svgEl("ellipse", { cx: -24, cy: 0, rx: 46, ry: 38, fill: "url(#brain-grad)", stroke: "#141821", "stroke-width": 3.5 }, brainGrp);
+      svgEl("ellipse", { cx: 24, cy: 0, rx: 46, ry: 38, fill: "url(#brain-grad)", stroke: "#141821", "stroke-width": 3.5 }, brainGrp);
+      svgEl("path", { d: "M -42 -12 Q -18 -26 0 -8 Q 18 -26 42 -12 M -38 12 Q -14 24 0 8 Q 16 24 38 12", fill: "none", stroke: "#FBCFE8", "stroke-width": 3.5, "stroke-linecap": "round" }, brainGrp);
+      // Heart organ group
+      var heartGrp = svgEl("g", { id: "anatomy-heart-" + idx, transform: "translate(18, 18)" }, bodyRig);
+      svgEl("path", {
+        d: "M 0 36 C -48 8 -62 -36 -26 -50 C -6 -58 0 -36 0 -30 C 0 -36 6 -58 26 -50 C 62 -36 48 8 0 36 Z",
+        fill: "url(#heart-grad)", stroke: "#141821", "stroke-width": 4
+      }, heartGrp);
+      svgEl("circle", { cx: -16, cy: -22, r: 10, fill: "#FDA4AF", opacity: "0.7" }, heartGrp);
+      // Animated blood/nerve pulse dot
+      svgEl("circle", { id: "anatomy-pulse-" + idx, cx: 0, cy: -80, r: 10, fill: "#FACC15", filter: "url(#soft-glow)" }, bodyRig);
+
+      return {
+        root: root, aoShadow: aoShadow, bodyRig: bodyRig,
+        species: "anatomy", brainGrp: brainGrp, heartGrp: heartGrp,
+        spec: actorSpec
+      };
+    }
+
+    if (pal.species === "cat" || pal.species === "rat") {
+      // Matalinong Daga (Rat) & Si Pusa (Cat) 2.5D Stylized Vector Rigs
+      var isCat = pal.species === "cat";
+      var tail = svgEl("path", {
+        id: "actor-tail-" + idx,
+        d: isCat ? "M -46 95 Q -125 65 -112 -15" : "M -42 98 Q -120 120 -132 52",
+        fill: "none",
+        stroke: isCat ? pal.furShade : "#F472B6",
+        "stroke-width": isCat ? 18 : 9,
+        "stroke-linecap": "round"
+      }, bodyRig);
+
+      var legL = svgEl("rect", { id: "actor-legL-" + idx, x: -34, y: 105, width: 26, height: 78, rx: 12, fill: pal.furShade, stroke: "#141821", "stroke-width": 4 }, bodyRig);
+      var legR = svgEl("rect", { id: "actor-legR-" + idx, x: 8, y: 105, width: 26, height: 78, rx: 12, fill: pal.fur, stroke: "#141821", "stroke-width": 4 }, bodyRig);
+
+      var torso = svgEl("g", { id: "actor-torso-" + idx }, bodyRig);
+      svgEl("ellipse", { cx: 0, cy: 48, rx: isCat ? 58 : 50, ry: 72, fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, torso);
+      svgEl("ellipse", { cx: 4, cy: 52, rx: isCat ? 34 : 30, ry: 50, fill: pal.belly }, torso);
+
+      var armL = svgEl("g", { id: "actor-armL-" + idx, transform: "translate(-48, 12)" }, torso);
+      svgEl("rect", { x: -12, y: 0, width: 22, height: 68, rx: 11, fill: pal.furShade, stroke: "#141821", "stroke-width": 4 }, armL);
+      var armR = svgEl("g", { id: "actor-armR-" + idx, transform: "translate(48, 12)" }, torso);
+      svgEl("rect", { x: -10, y: 0, width: 22, height: 68, rx: 11, fill: pal.fur, stroke: "#141821", "stroke-width": 4 }, armR);
+
+      var head = svgEl("g", { id: "actor-head-" + idx, transform: "translate(0, -68)" }, torso);
+      if (isCat) {
+        svgEl("polygon", { points: "-54,-36 -66,-106 -14,-64", fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, head);
+        svgEl("polygon", { points: "54,-36 66,-106 14,-64", fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, head);
+        svgEl("polygon", { points: "-46,-46 -54,-88 -22,-62", fill: "#FDBA74" }, head);
+        svgEl("polygon", { points: "46,-46 54,-88 22,-62", fill: "#FDBA74" }, head);
+      } else {
+        // Large round strategist ears for Matalinong Daga
+        svgEl("circle", { cx: -56, cy: -58, r: 34, fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, head);
+        svgEl("circle", { cx: 56, cy: -58, r: 34, fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, head);
+        svgEl("circle", { cx: -56, cy: -58, r: 20, fill: "#F9A8D4" }, head);
+        svgEl("circle", { cx: 56, cy: -58, r: 20, fill: "#F9A8D4" }, head);
+      }
+      svgEl("ellipse", { cx: 0, cy: 0, rx: isCat ? 66 : 60, ry: isCat ? 58 : 54, fill: pal.fur, stroke: "#141821", "stroke-width": 4.5 }, head);
+      // Soft top rim highlight
+      svgEl("path", { d: "M -44 -34 Q 0 -54 44 -34", fill: "none", stroke: "#FFFFFF", "stroke-width": 4, opacity: "0.35", "stroke-linecap": "round" }, head);
+      // Whiskers
+      svgEl("path", { d: "M -34 6 L -74 0 M -34 16 L -74 20 M 34 6 L 74 0 M 34 16 L 74 20", stroke: "#141821", "stroke-width": 3, "stroke-linecap": "round" }, head);
+
+      var faceRefs = buildFaceGroup(head, idx, isCat ? "#FDE047" : "#FFFFFF", isCat ? "#EC4899" : "#F472B6");
+      if (!isCat) {
+        // Smart glasses for Matalinong Daga
+        svgEl("circle", { cx: -22, cy: -8, r: 17, fill: "none", stroke: "#FACC15", "stroke-width": 3.5 }, head);
+        svgEl("circle", { cx: 22, cy: -8, r: 17, fill: "none", stroke: "#FACC15", "stroke-width": 3.5 }, head);
+        svgEl("line", { x1: -5, y1: -8, x2: 5, y2: -8, stroke: "#FACC15", "stroke-width": 3.5 }, head);
+      }
+      return {
+        root: root, aoShadow: aoShadow, bodyRig: bodyRig, torso: torso, head: head,
+        armL: armL, armR: armR, legL: legL, legR: legR, tail: tail,
+        face: faceRefs, species: pal.species, spec: actorSpec
+      };
+    }
+
+    // Human 2.5D Layered Multi-Jointed Vector Character Rig
+    var shoulderW = pal.broad ? 64 : 52;
+    var legL = svgEl("g", { id: "actor-legL-" + idx, transform: "translate(-22, 102)" }, bodyRig);
+    svgEl("rect", { x: -13, y: 0, width: 26, height: 84, rx: 12, fill: pal.pants, stroke: "#141821", "stroke-width": 4 }, legL);
+    svgEl("ellipse", { cx: 2, cy: 84, rx: 18, ry: 9, fill: "#0B0F19", stroke: "#141821", "stroke-width": 3.5 }, legL);
+
+    var legR = svgEl("g", { id: "actor-legR-" + idx, transform: "translate(22, 102)" }, bodyRig);
+    svgEl("rect", { x: -13, y: 0, width: 26, height: 84, rx: 12, fill: pal.pants, stroke: "#141821", "stroke-width": 4 }, legR);
+    svgEl("ellipse", { cx: 2, cy: 84, rx: 18, ry: 9, fill: "#0B0F19", stroke: "#141821", "stroke-width": 3.5 }, legR);
+
+    var torso = svgEl("g", { id: "actor-torso-" + idx }, bodyRig);
+    // Back arm
+    var armL = svgEl("g", { id: "actor-armL-" + idx, transform: "translate(" + (-shoulderW) + ", -12)" }, torso);
+    svgEl("rect", { x: -12, y: 0, width: 24, height: 78, rx: 12, fill: pal.shirtShade, stroke: "#141821", "stroke-width": 4 }, armL);
+    svgEl("circle", { cx: 0, cy: 80, r: 12, fill: pal.skin, stroke: "#141821", "stroke-width": 3.5 }, armL);
+
+    // Torso shirt with rim-light shading
+    svgEl("rect", { x: -shoulderW, y: -22, width: shoulderW * 2, height: 130, rx: 28, fill: pal.shirt, stroke: "#141821", "stroke-width": 4.5 }, torso);
+    svgEl("path", { d: "M " + (-shoulderW + 12) + " -12 L " + (-shoulderW + 12) + " 96", stroke: "#FFFFFF", "stroke-width": 4, opacity: "0.26", "stroke-linecap": "round" }, torso);
+    if (pal.sash) {
+      svgEl("line", { x1: -shoulderW + 8, y1: -14, x2: shoulderW - 8, y2: 100, stroke: pal.sash, "stroke-width": 14, "stroke-linecap": "round" }, torso);
+    }
+    if (pal.apron) {
+      svgEl("rect", { x: -34, y: 12, width: 68, height: 92, rx: 12, fill: pal.apron, stroke: "#141821", "stroke-width": 3.5 }, torso);
+    }
+
+    // Neck + Head
+    svgEl("rect", { x: -14, y: -44, width: 28, height: 28, rx: 8, fill: pal.skin, stroke: "#141821", "stroke-width": 3.5 }, torso);
+    var head = svgEl("g", { id: "actor-head-" + idx, transform: "translate(0, -102)" }, torso);
+    if (pal.longHair) {
+      svgEl("path", { d: "M -62 -22 C -72 48 -64 98 -38 112 L 38 112 C 64 98 72 48 62 -22 Z", fill: pal.hair, stroke: "#141821", "stroke-width": 4 }, head);
+    }
+    // Ears
+    svgEl("circle", { cx: -58, cy: 4, r: 12, fill: pal.skin, stroke: "#141821", "stroke-width": 3.5 }, head);
+    svgEl("circle", { cx: 58, cy: 4, r: 12, fill: pal.skin, stroke: "#141821", "stroke-width": 3.5 }, head);
+    // Head sphere
+    svgEl("ellipse", { cx: 0, cy: 0, rx: 58, ry: 62, fill: pal.skin, stroke: "#141821", "stroke-width": 4.5 }, head);
+    // Hair cap
+    svgEl("path", { d: "M -58 -10 C -58 -68 58 -68 58 -10 C 32 -34 -32 -34 -58 -10 Z", fill: pal.hair, stroke: "#141821", "stroke-width": 4 }, head);
+    svgEl("path", { d: "M -36 -42 Q 0 -58 36 -42", fill: "none", stroke: "#FFFFFF", "stroke-width": 4, opacity: "0.28", "stroke-linecap": "round" }, head);
+
+    var faceRefs = buildFaceGroup(head, idx, "#FFFFFF", null);
+    if (pal.mustache) {
+      svgEl("path", { d: "M -24 18 Q -10 10 0 18 Q 10 10 24 18", fill: "none", stroke: pal.hair, "stroke-width": 7, "stroke-linecap": "round" }, head);
+    }
+
+    // Front arm
+    var armR = svgEl("g", { id: "actor-armR-" + idx, transform: "translate(" + shoulderW + ", -12)" }, torso);
+    svgEl("rect", { x: -12, y: 0, width: 24, height: 78, rx: 12, fill: pal.shirt, stroke: "#141821", "stroke-width": 4 }, armR);
+    svgEl("circle", { cx: 0, cy: 80, r: 12, fill: pal.skin, stroke: "#141821", "stroke-width": 3.5 }, armR);
+
+    return {
+      root: root, aoShadow: aoShadow, bodyRig: bodyRig, torso: torso, head: head,
+      armL: armL, armR: armR, legL: legL, legR: legR,
+      face: faceRefs, species: "human", spec: actorSpec
+    };
+  }
+
+  function buildFaceGroup(headGroup, idx, eyeWhite, noseColor) {
+    var faceG = svgEl("g", { id: "actor-face-" + idx }, headGroup);
+    // Eyes
+    var eyeL = svgEl("ellipse", { cx: -21, cy: -6, rx: 10, ry: 12, fill: eyeWhite, stroke: "#141821", "stroke-width": 3 }, faceG);
+    var eyeR = svgEl("ellipse", { cx: 21, cy: -6, rx: 10, ry: 12, fill: eyeWhite, stroke: "#141821", "stroke-width": 3 }, faceG);
+    var pupL = svgEl("circle", { cx: -19, cy: -6, r: 5, fill: "#111827" }, faceG);
+    var pupR = svgEl("circle", { cx: 23, cy: -6, r: 5, fill: "#111827" }, faceG);
+    svgEl("circle", { cx: -21, cy: -9, r: 2, fill: "#FFFFFF" }, faceG);
+    svgEl("circle", { cx: 21, cy: -9, r: 2, fill: "#FFFFFF" }, faceG);
+
+    // Eyebrows
+    var browL = svgEl("path", { d: "M -32 -23 Q -21 -29 -10 -23", fill: "none", stroke: "#141821", "stroke-width": 4.5, "stroke-linecap": "round" }, faceG);
+    var browR = svgEl("path", { d: "M 10 -23 Q 21 -29 32 -23", fill: "none", stroke: "#141821", "stroke-width": 4.5, "stroke-linecap": "round" }, faceG);
+
+    if (noseColor) {
+      svgEl("ellipse", { cx: 0, cy: 7, rx: 7, ry: 5, fill: noseColor, stroke: "#141821", "stroke-width": 2.5 }, faceG);
+    }
+
+    // Tears & Sweat overlay
+    var tearsG = svgEl("g", { opacity: "0" }, faceG);
+    svgEl("path", { d: "M -24 6 Q -28 24 -20 34 Q -14 24 -18 6 Z", fill: "#38BDF8" }, tearsG);
+    svgEl("path", { d: "M 24 6 Q 28 24 20 34 Q 14 24 18 6 Z", fill: "#38BDF8" }, tearsG);
+    var sweatDrop = svgEl("path", { d: "M 42 -28 Q 50 -10 42 -2 Q 34 -10 42 -28 Z", fill: "#38BDF8", opacity: "0" }, faceG);
+
+    // Dynamic Lip-Sync Mouth
+    var mouthG = svgEl("g", { transform: "translate(0, 26)" }, faceG);
+    var mouthPath = svgEl("path", {
+      d: buildMouthPath("closed"),
+      fill: "#7F1D1D",
+      stroke: "#141821",
+      "stroke-width": 3.5,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round"
+    }, mouthG);
+
+    return {
+      eyeL: eyeL, eyeR: eyeR, pupL: pupL, pupR: pupR,
+      browL: browL, browR: browR,
+      tearsG: tearsG, sweatDrop: sweatDrop,
+      mouthPath: mouthPath
+    };
+  }
+
+  function applyFacialMoodAndLipSync(rig, mood, localSec, isSpeaking) {
+    if (!rig || !rig.face) return;
+    var f = rig.face;
+    var m = String(mood || "determined").toLowerCase();
+
+    // Deterministic eye blink every ~3.2s
+    var blinkPhase = (localSec + (rig.spec && rig.spec.x ? rig.spec.x * 1.7 : 0)) % 3.2;
+    var isBlinking = blinkPhase > 3.05;
+
+    var baseRy = 12;
+    if (m === "squint") baseRy = 5;
+    else if (m === "shocked" || m === "scared") baseRy = 15;
+    else if (m === "laugh") baseRy = 3;
+
+    var ry = isBlinking ? 1.5 : baseRy;
+    f.eyeL.setAttribute("ry", ry.toFixed(1));
+    f.eyeR.setAttribute("ry", ry.toFixed(1));
+    f.pupL.setAttribute("opacity", isBlinking || m === "laugh" ? "0" : "1");
+    f.pupR.setAttribute("opacity", isBlinking || m === "laugh" ? "0" : "1");
+
+    // Eyebrows per emotion
+    if (m === "determined") {
+      f.browL.setAttribute("d", "M -32 -26 L -10 -19");
+      f.browR.setAttribute("d", "M 10 -19 L 32 -26");
+    } else if (m === "crying" || m === "scared") {
+      f.browL.setAttribute("d", "M -32 -18 L -10 -27");
+      f.browR.setAttribute("d", "M 10 -27 L 32 -18");
+    } else if (m === "shocked") {
+      f.browL.setAttribute("d", "M -32 -30 Q -21 -38 -10 -30");
+      f.browR.setAttribute("d", "M 10 -30 Q 21 -38 32 -30");
+    } else {
+      f.browL.setAttribute("d", "M -32 -23 Q -21 -29 -10 -23");
+      f.browR.setAttribute("d", "M 10 -23 Q 21 -29 32 -23");
+    }
+
+    f.tearsG.setAttribute("opacity", m === "crying" ? "0.92" : "0");
+    f.sweatDrop.setAttribute("opacity", (m === "scared" || m === "shocked") ? "0.88" : "0");
+
+    // Lip-sync syllable envelope
+    var shape = "closed";
+    if (isSpeaking) {
+      var amp = Math.sin(localSec * 19.0) * 0.5 + Math.sin(localSec * 11.3) * 0.5;
+      if (amp > 0.45) shape = "wide";
+      else if (amp > 0.05) shape = "round";
+      else if (amp > -0.35) shape = "smile";
+      else shape = "closed";
+    } else if (m === "happy" || m === "laugh") {
+      shape = m === "laugh" ? "wide" : "smile";
+    } else if (m === "shocked") {
+      shape = "round";
+    }
+    f.mouthPath.setAttribute("d", buildMouthPath(shape));
+  }
+
+  /* ======================== PROCEDURAL PARTICLE & FX ENGINE ======================== */
+  function renderProceduralFx(fxKey, localSec) {
+    clearNode(elFxBack);
+    clearNode(elFxFront);
+    var fx = String(fxKey || "none").toLowerCase();
+    if (fx === "none" || fx === "") return;
+
+    if (fx === "sunbeams") {
+      for (var b = 0; b < 4; b++) {
+        var bx = STAGE_W * (0.18 + b * 0.22) + Math.sin(localSec * 0.9 + b) * 35;
+        svgEl("polygon", {
+          points: (bx - 40) + ",-40 " + (bx + 40) + ",-40 " + (bx + 210) + "," + STAGE_H + " " + (bx - 160) + "," + STAGE_H,
+          fill: "url(#sunbeam-grad)",
+          opacity: (0.45 + Math.sin(localSec * 1.4 + b) * 0.15).toFixed(2)
+        }, elFxBack);
+      }
+      return;
+    }
+
+    if (fx === "dust_motes") {
+      var rndD = seededRand(1042);
+      for (var d = 0; d < 28; d++) {
+        var dx = rndD() * STAGE_W + Math.sin(localSec * 1.2 + d) * 28;
+        var dy = ((rndD() * STAGE_H - localSec * (24 + rndD() * 26)) % STAGE_H + STAGE_H) % STAGE_H;
+        var dr = 3 + rndD() * 6;
+        svgEl("circle", { cx: dx.toFixed(1), cy: dy.toFixed(1), r: dr.toFixed(1), fill: "#FEF08A", opacity: (0.25 + rndD() * 0.4).toFixed(2) }, elFxBack);
+      }
+      return;
+    }
+
+    if (fx === "rain_storm") {
+      var rndR = seededRand(8871);
+      for (var r = 0; r < 52; r++) {
+        var rx = ((rndR() * (STAGE_W + 200) - localSec * 260) % (STAGE_W + 200) + (STAGE_W + 200)) % (STAGE_W + 200) - 100;
+        var ry = ((rndR() * STAGE_H + localSec * 1450) % STAGE_H);
+        var len = 32 + rndR() * 38;
+        svgEl("line", {
+          x1: rx.toFixed(1), y1: ry.toFixed(1),
+          x2: (rx - 14).toFixed(1), y2: (ry + len).toFixed(1),
+          stroke: "#BAE6FD", "stroke-width": 2.4, opacity: "0.48", "stroke-linecap": "round"
+        }, elFxFront);
+      }
+      if (Math.sin(localSec * 7.5) > 0.94) {
+        svgEl("rect", { x: 0, y: 0, width: STAGE_W, height: STAGE_H, fill: "#E0F2FE", opacity: "0.22" }, elFxFront);
+      }
+      return;
+    }
+
+    if (fx === "poof_smoke_stars") {
+      var age = clamp(localSec, 0, 2.5);
+      var puffR = 32 + age * 85;
+      var puffOp = clamp(1 - age / 1.8, 0, 0.85);
+      for (var p = 0; p < 8; p++) {
+        var ang = (p / 8) * Math.PI * 2 + age * 0.6;
+        var px = STAGE_W * 0.5 + Math.cos(ang) * puffR;
+        var py = STAGE_H * 0.54 + Math.sin(ang) * puffR * 0.7;
+        svgEl("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: (48 - age * 14).toFixed(1), fill: "#F8FAFC", opacity: puffOp.toFixed(2) }, elFxFront);
+        var sx = STAGE_W * 0.5 + Math.cos(ang + 0.4) * (puffR * 1.35);
+        var sy = STAGE_H * 0.52 + Math.sin(ang + 0.4) * (puffR * 1.0);
+        svgEl("circle", { cx: sx.toFixed(1), cy: sy.toFixed(1), r: 10, fill: "#FACC15", opacity: puffOp.toFixed(2) }, elFxFront);
+      }
+      return;
+    }
+
+    if (fx === "floating_hearts") {
+      var rndH = seededRand(4419);
+      for (var h = 0; h < 12; h++) {
+        var hx = STAGE_W * (0.15 + rndH() * 0.7) + Math.sin(localSec * 2.4 + h) * 36;
+        var hy = STAGE_H * 0.72 - ((localSec * (160 + rndH() * 90) + h * 110) % (STAGE_H * 0.55));
+        var hop = clamp(1 - Math.abs(hy - STAGE_H * 0.45) / (STAGE_H * 0.35), 0.15, 0.9);
+        svgEl("path", {
+          d: "M 0 14 C -18 2 -24 -14 -10 -20 C -2 -23 0 -14 0 -12 C 0 -14 2 -23 10 -20 C 24 -14 18 2 0 14 Z",
+          transform: "translate(" + hx.toFixed(1) + ", " + hy.toFixed(1) + ") scale(1.2)",
+          fill: "#FB7185", opacity: hop.toFixed(2)
+        }, elFxFront);
+      }
+      return;
+    }
+
+    if (fx === "shockwave_rings") {
+      for (var w = 0; w < 3; w++) {
+        var prog = ((localSec * 0.85 + w * 0.33) % 1.0);
+        var rad = 60 + prog * (IS_WIDE ? 520 : 440);
+        svgEl("circle", {
+          cx: STAGE_W * 0.5, cy: STAGE_H * 0.52, r: rad.toFixed(1),
+          fill: "none", stroke: "#FACC15", "stroke-width": (10 * (1 - prog)).toFixed(1),
+          opacity: (1 - prog).toFixed(2)
+        }, elFxFront);
+      }
+      return;
+    }
+
+    if (fx === "nerve_sparks") {
+      var rndN = seededRand(9931);
+      for (var n = 0; n < 14; n++) {
+        var nx1 = STAGE_W * (0.2 + rndN() * 0.6);
+        var ny1 = STAGE_H * (0.28 + rndN() * 0.44);
+        var nx2 = nx1 + Math.cos(localSec * 6 + n) * 95;
+        var ny2 = ny1 + Math.sin(localSec * 7 + n) * 95;
+        var nOp = (0.35 + Math.abs(Math.sin(localSec * 9 + n)) * 0.6).toFixed(2);
+        svgEl("line", { x1: nx1.toFixed(1), y1: ny1.toFixed(1), x2: nx2.toFixed(1), y2: ny2.toFixed(1), stroke: "#38BDF8", "stroke-width": 3.5, opacity: nOp, filter: "url(#soft-glow)" }, elFxFront);
+        svgEl("circle", { cx: nx2.toFixed(1), cy: ny2.toFixed(1), r: 6, fill: "#FACC15", opacity: nOp }, elFxFront);
+      }
+    }
+  }
+
+  /* ======================== SAFE-ZONE TOP HUD & CALLOUT ======================== */
+  function renderTopHud(sceneIdx, localProgress) {
+    clearNode(elHudTop);
+    var barY = IS_WIDE ? 54 : 155;
+    var pillY = IS_WIDE ? 98 : 205;
+    var barPadX = IS_WIDE ? 140 : 64;
+    var totalBarW = STAGE_W - barPadX * 2;
+    var count = Math.max(1, sceneTimings.length);
+    var gap = 10;
+    var segW = Math.max(12, (totalBarW - gap * (count - 1)) / count);
+
+    for (var i = 0; i < count; i++) {
+      var sx = barPadX + i * (segW + gap);
+      svgEl("rect", { x: sx.toFixed(1), y: barY, width: segW.toFixed(1), height: 10, rx: 5, fill: "#FFFFFF", opacity: "0.24" }, elHudTop);
+      var fillFrac = i < sceneIdx ? 1 : (i === sceneIdx ? clamp(localProgress, 0, 1) : 0);
+      if (fillFrac > 0) {
+        svgEl("rect", { x: sx.toFixed(1), y: barY, width: (segW * fillFrac).toFixed(1), height: 10, rx: 5, fill: "#FACC15" }, elHudTop);
+      }
+    }
+
+    var badgeMap = {
+      sa_bayang_ito: "SA BAYANG ITO...",
+      matalinong_daga: "MATALINONG DAGA",
+      zack_explainer: "SCIENCE CUTAWAY"
+    };
+    var badgeLabel = badgeMap[String(EPISODE.niche || "").toLowerCase()] || String(EPISODE.title || "TOONFORGE STUDIO").toUpperCase();
+    if (badgeLabel.length > 28) badgeLabel = badgeLabel.slice(0, 28);
+    var pillW = Math.max(220, badgeLabel.length * 16 + 48);
+    var pillX = (STAGE_W - pillW) / 2;
+    svgEl("rect", {
+      x: pillX.toFixed(1), y: pillY, width: pillW.toFixed(1), height: 42, rx: 21,
+      fill: "#0B1120", "fill-opacity": "0.78", stroke: "#38BDF8", "stroke-opacity": "0.55", "stroke-width": 2
+    }, elHudTop);
+    var pTxt = svgEl("text", {
+      x: STAGE_W / 2, y: pillY + 27, "text-anchor": "middle",
+      fill: "#E2E8F0", "font-size": 21, "class": "hud-title"
+    }, elHudTop);
+    pTxt.textContent = badgeLabel;
+  }
+
+  function renderCallout(calloutText) {
+    clearNode(elCallout);
+    var txt = String(calloutText || "").trim();
+    if (!txt) return;
+    if (txt.length > 34) txt = txt.slice(0, 34);
+    var cy = IS_WIDE ? 168 : 286;
+    var cw = Math.min(STAGE_W * 0.84, Math.max(260, txt.length * 22 + 56));
+    var cx = (STAGE_W - cw) / 2;
+    svgEl("rect", {
+      x: cx.toFixed(1), y: cy, width: cw.toFixed(1), height: 62, rx: 16,
+      fill: "#FACC15", stroke: "#141821", "stroke-width": 4.5
+    }, elCallout);
+    var ct = svgEl("text", {
+      x: STAGE_W / 2, y: cy + 41, "text-anchor": "middle",
+      fill: "#141821", "font-size": 30, "class": "callout-txt"
+    }, elCallout);
+    ct.textContent = txt.toUpperCase();
+  }
+
+  /* ======================== GSAP CHOREOGRAPHY BUILDER ======================== */
+  function computeActorPixelPosition(actorSpec) {
+    var nx = clamp(typeof actorSpec.x === "number" ? actorSpec.x : 0.5, 0.12, 0.88);
+    var ny = clamp(typeof actorSpec.y === "number" ? actorSpec.y : 0.58, 0.34, 0.66);
+    if (IS_WIDE) {
+      // Spread actors horizontally across widescreen stage while keeping feet safely above bottom 28% caption zone
+      ny = clamp(ny * 0.88, 0.34, 0.60);
+    }
+    return { px: nx * STAGE_W, py: ny * STAGE_H };
+  }
+
+  function buildSceneChoreography(scene, startSec, durSec) {
+    var tl = gsap.timeline({ paused: true });
+    var cam = scene.camera || {};
+    var preset = String(cam.preset || "push_in").toLowerCase();
+    var targetZoom = clamp(typeof cam.zoom === "number" ? cam.zoom : 1.06, 0.92, 1.35);
+
+    // Camera choreography centered on stage center
+    tl.set(elCamera, { ox: STAGE_W * 0.5, oy: STAGE_H * 0.5, x: 0, y: 0, scale: 1, rotation: 0 }, 0);
+    if (preset === "push_in") {
+      tl.fromTo(elCamera, { scale: 1.0 }, { scale: targetZoom, duration: durSec, ease: "sine.inOut" }, 0);
+    } else if (preset === "wide") {
+      tl.fromTo(elCamera, { scale: 1.08 }, { scale: 0.96, duration: durSec, ease: "power1.out" }, 0);
+    } else if (preset === "close_up") {
+      tl.fromTo(elCamera, { scale: 1.12, y: 40 }, { scale: Math.max(targetZoom, 1.22), y: 65, duration: durSec, ease: "power2.out" }, 0);
+    } else if (preset === "pan_right") {
+      tl.fromTo(elCamera, { scale: 1.08, x: 45 }, { scale: 1.08, x: -45, duration: durSec, ease: "sine.inOut" }, 0);
+    } else if (preset === "impact_shake") {
+      tl.fromTo(elCamera, { scale: 1.14, x: -16, y: 12 }, { scale: 1.04, x: 14, y: -10, duration: Math.min(0.45, durSec), repeat: 3, yoyo: true, ease: "power2.inOut" }, 0);
+    }
+
+    // Cloud parallax motion if present
+    for (var c = 0; c < 4; c++) {
+      var cloud = document.getElementById("env-cloud-" + c);
+      if (cloud) {
+        var dir = c % 2 === 0 ? 1 : -1;
+        tl.fromTo(cloud, { x: -30 * dir }, { x: 45 * dir, duration: durSec, ease: "linear" }, 0);
+      }
+    }
+
+    // Build and animate each layered actor rig in this scene
+    clearNode(elActors);
+    var actors = Array.isArray(scene.actors) && scene.actors.length > 0
+      ? scene.actors
+      : [{ role: scene.speaker === "cat" ? "cat" : (scene.speaker === "rat" ? "rat" : "hero"), x: 0.5, y: 0.58, scale: 1.0, facing: 1, mood: "determined", action: "idle" }];
+
+    var builtRigs = [];
+    for (var i = 0; i < actors.length; i++) {
+      var aSpec = actors[i] || {};
+      var rig = createActorRig(aSpec, i);
+      builtRigs.push(rig);
+
+      var pos = computeActorPixelPosition(aSpec);
+      var baseScale = clamp(typeof aSpec.scale === "number" ? aSpec.scale : 1.0, 0.45, 1.8) * (IS_WIDE ? 0.92 : 1.15);
+      var endScale = clamp(typeof aSpec.targetScale === "number" ? aSpec.targetScale : baseScale / (IS_WIDE ? 0.92 : 1.15), 0.4, 1.8) * (IS_WIDE ? 0.92 : 1.15);
+      var facing = aSpec.facing === -1 ? -1 : 1;
+      var action = String(aSpec.action || "idle").toLowerCase();
+
+      tl.set(rig.root, { x: pos.px, y: pos.py, scaleX: baseScale * facing, scaleY: baseScale, opacity: 1 }, 0);
+      if (Math.abs(endScale - baseScale) > 0.02) {
+        tl.to(rig.root, { scaleX: endScale * facing, scaleY: endScale, duration: Math.min(durSec, 1.2), ease: "back.out" }, 0);
+      }
+
+      if (rig.species === "anatomy") {
+        tl.fromTo(rig.brainGrp, { scale: 0.96 }, { scale: 1.06, duration: 0.75, repeat: Math.max(1, Math.floor(durSec / 0.75)), yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.heartGrp, { scale: 0.92 }, { scale: 1.12, duration: 0.45, repeat: Math.max(1, Math.floor(durSec / 0.45)), yoyo: true, ease: "power2.out" }, 0);
+        continue;
+      }
+
+      // Action-specific spring limb choreography
+      if (action === "walk" || action === "run") {
+        var spd = action === "run" ? 0.24 : 0.42;
+        var reps = Math.max(1, Math.floor(durSec / spd));
+        tl.fromTo(rig.bodyRig, { y: 0 }, { y: action === "run" ? -18 : -10, duration: spd * 0.5, repeat: reps * 2, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.legL, { rotation: -22 }, { rotation: 22, duration: spd, repeat: reps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.legR, { rotation: 22 }, { rotation: -22, duration: spd, repeat: reps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.armL, { rotation: 24 }, { rotation: -24, duration: spd, repeat: reps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.armR, { rotation: -24 }, { rotation: 24, duration: spd, repeat: reps, yoyo: true, ease: "sine.inOut" }, 0);
+      } else if (action === "wave") {
+        var wReps = Math.max(2, Math.floor(durSec / 0.35));
+        tl.fromTo(rig.armR, { rotation: -120 }, { rotation: -155, duration: 0.35, repeat: wReps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.head, { rotation: -5 }, { rotation: 6, duration: 0.7, repeat: Math.max(1, Math.floor(durSec / 0.7)), yoyo: true, ease: "sine.inOut" }, 0);
+      } else if (action === "cry_shake") {
+        var cReps = Math.max(3, Math.floor(durSec / 0.22));
+        tl.fromTo(rig.torso, { x: -5, rotation: -3 }, { x: 5, rotation: 3, duration: 0.22, repeat: cReps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.set(rig.armL, { rotation: -135 }, 0);
+        tl.set(rig.armR, { rotation: 135 }, 0);
+      } else if (action === "kneel") {
+        tl.to(rig.bodyRig, { y: 42, duration: 0.45, ease: "power2.out" }, 0);
+        tl.to(rig.head, { rotation: 12, duration: 0.5, ease: "sine.inOut" }, 0);
+      } else if (action === "hug") {
+        tl.to(rig.armL, { rotation: -68, duration: 0.5, ease: "back.out" }, 0);
+        tl.to(rig.armR, { rotation: 68, duration: 0.5, ease: "back.out" }, 0);
+      } else if (action === "chop" || action === "block") {
+        tl.fromTo(rig.armR, { rotation: -110 }, { rotation: action === "chop" ? -25 : -78, duration: 0.35, repeat: 2, yoyo: true, ease: "power3.out" }, 0);
+      } else {
+        // Breathing & conversational idle spring
+        var iReps = Math.max(1, Math.floor(durSec / 0.9));
+        tl.fromTo(rig.torso, { y: 0 }, { y: -6, duration: 0.9, repeat: iReps, yoyo: true, ease: "sine.inOut" }, 0);
+        tl.fromTo(rig.armR, { rotation: -12 }, { rotation: -36, duration: 0.75, repeat: iReps, yoyo: true, ease: "sine.inOut" }, 0);
+      }
+    }
+
+    return { timeline: tl, rigs: builtRigs };
+  }
+
+  var activeRigs = [];
+
+  function rebuildMasterTimeline() {
+    var scenes = window.STORYBOARD_SCENES || [];
+    sceneTimings = [];
+    var cursor = 0.0;
+    for (var i = 0; i < scenes.length; i++) {
+      var rawDur = Number(scenes[i].duration);
+      var dur = (rawDur > 0.2 && !isNaN(rawDur)) ? rawDur : 4.5;
+      sceneTimings.push({
+        startSec: cursor,
+        endSec: cursor + dur,
+        durationSec: dur
+      });
+      cursor += dur;
+    }
+    totalDurationSec = Math.max(1.0, cursor);
+    activeSceneIdx = -1;
+  }
+
+  function enterScene(idx) {
+    var scenes = window.STORYBOARD_SCENES || [];
+    if (idx < 0 || idx >= scenes.length) return;
+    activeSceneIdx = idx;
+    var scene = scenes[idx];
+    var timing = sceneTimings[idx];
+
+    gsap.resetEl(elCamera);
+    renderEnvironment(scene.bgTheme || "town_day");
+    renderCallout(scene.callout || "");
+
+    var built = buildSceneChoreography(scene, timing.startSec, timing.durationSec);
+    window.masterTimeline = built.timeline;
+    activeRigs = built.rigs;
+  }
+
+  /* ======================== MANDATORY WEBVIEW & APK HOOKS ======================== */
+  window.loadEpisodeJSON = function(episodeData) {
+    var parsed = episodeData;
+    if (typeof episodeData === "string") {
+      try {
+        parsed = JSON.parse(episodeData);
+      } catch (e) {
+        parsed = { title: "ToonForge Studio", niche: "sa_bayang_ito", aspectRatio: "9:16", scenes: [] };
+      }
+    }
+    parsed = parsed || {};
+    EPISODE.title = String(parsed.title || "ToonForge Studio");
+    EPISODE.niche = String(parsed.niche || "sa_bayang_ito");
+    if (parsed.aspectRatio) {
+      window.setAspectRatio(parsed.aspectRatio);
+    } else {
+      applyStageDimensions();
+    }
+    window.STORYBOARD_SCENES = Array.isArray(parsed.scenes) ? parsed.scenes : [];
+    rebuildMasterTimeline();
+    window.seekToTime(currentSeconds);
+    window.__toonforgeReady = true;
+  };
+
+  window.setAspectRatio = function(ratio) {
+    var norm = String(ratio || "").trim();
+    if (norm === "16:9") {
+      STAGE_W = 1920;
+      STAGE_H = 1080;
+    } else {
+      STAGE_W = 1080;
+      STAGE_H = 1920;
+    }
+    EPISODE.aspectRatio = norm === "16:9" ? "16:9" : "9:16";
+    applyStageDimensions();
+    activeSceneIdx = -1;
+    if ((window.STORYBOARD_SCENES || []).length > 0) {
+      window.seekToTime(currentSeconds);
+    }
+  };
+
+  window.setSceneTimings = function(durationsArray) {
+    if (!Array.isArray(durationsArray) || durationsArray.length === 0) return;
+    var scenes = window.STORYBOARD_SCENES || [];
+    for (var i = 0; i < scenes.length; i++) {
+      var d = Number(durationsArray[i]);
+      if (d > 0.05 && !isNaN(d)) {
+        // Hold +1.5s on final scene for seamless loop breathing room
+        var finalHold = (i === scenes.length - 1) ? 1.5 : 0.0;
+        scenes[i].duration = d + finalHold;
+      }
+    }
+    rebuildMasterTimeline();
+    window.seekToTime(currentSeconds);
+  };
+
+  window.seekToTime = function(seconds) {
+    var sec = Math.max(0, Number(seconds) || 0);
+    currentSeconds = sec;
+    var scenes = window.STORYBOARD_SCENES || [];
+    if (scenes.length === 0 || sceneTimings.length === 0) {
+      renderEnvironment("town_day");
+      renderTopHud(0, 0);
+      return;
+    }
+
+    var clamped = Math.min(sec, Math.max(0, totalDurationSec - 0.001));
+    var targetIdx = scenes.length - 1;
+    for (var i = 0; i < sceneTimings.length; i++) {
+      if (clamped >= sceneTimings[i].startSec && clamped < sceneTimings[i].endSec) {
+        targetIdx = i;
+        break;
+      }
+    }
+
+    if (targetIdx !== activeSceneIdx) {
+      enterScene(targetIdx);
+    }
+
+    var timing = sceneTimings[targetIdx];
+    var localSec = Math.max(0, sec - timing.startSec);
+    var localProg = timing.durationSec > 0 ? clamp(localSec / timing.durationSec, 0, 1) : 1;
+    var activeScene = scenes[targetIdx];
+
+    if (window.masterTimeline && typeof window.masterTimeline.seek === "function") {
+      window.masterTimeline.seek(Math.min(localSec, window.masterTimeline.duration()));
+    }
+
+    // Determine whether voiceover is speaking (hold final 1.5s quietly on final scene)
+    var isFinalHold = (targetIdx === scenes.length - 1) && (timing.durationSec - localSec < 1.35);
+    var isSpeaking = !isFinalHold && String(activeScene.narration || "").trim().length > 0;
+    var activeSpeaker = String(activeScene.speaker || "").toLowerCase();
+
+    for (var r = 0; r < activeRigs.length; r++) {
+      var rig = activeRigs[r];
+      var aRole = String((rig.spec && rig.spec.role) || "").toLowerCase();
+      var rigSpeaks = isSpeaking && (
+        activeRigs.length === 1 ||
+        activeSpeaker === aRole ||
+        (activeSpeaker === "narrator" && r === 0)
+      );
+      applyFacialMoodAndLipSync(rig, rig.spec && rig.spec.mood, localSec, rigSpeaks);
+    }
+
+    renderProceduralFx(activeScene.fx || "none", localSec);
+    renderTopHud(targetIdx, localProg);
+  };
+
+  // Bootstrap automatically if <script id="episode-data"> is embedded
+  applyStageDimensions();
+  var embedded = document.getElementById("episode-data");
+  if (embedded && embedded.textContent && embedded.textContent.trim().length > 2) {
+    window.loadEpisodeJSON(embedded.textContent);
+  } else {
+    window.loadEpisodeJSON({
+      title: "ToonForge Studio",
+      niche: "sa_bayang_ito",
+      aspectRatio: "9:16",
+      scenes: [
+        {
+          id: 1,
+          duration: 4.5,
+          speaker: "narrator",
+          bgTheme: "town_sunset",
+          camera: { preset: "push_in", zoom: 1.08 },
+          actors: [{ role: "hero", x: 0.5, y: 0.58, scale: 1.0, facing: 1, mood: "determined", action: "idle" }],
+          fx: "dust_motes",
+          callout: "HANDA NA ANG STUDIO",
+          narration: "Maligayang pagdating sa bagong animated studio."
+        }
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

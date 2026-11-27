@@ -51,6 +51,47 @@ class DeterministicVideoExporter(
         const val AUDIO_SAMPLE_RATE = 44100
         const val AUDIO_CHANNELS = 1
         const val AUDIO_BITRATE = 128_000
+
+        /**
+         * Immediately cleans temporary frame PNG buffers, `frames/` directories, temporary
+         * `render_*.mp4` files, `toonforge_work_*` directories, and stale/consumed
+         * `toonforge_batch_*.json` files from cache storage.
+         */
+        fun cleanupTemporaryCacheBuffers(
+            cacheDir: File,
+            activeWorkDir: File? = null,
+            deleteBatchJsonOlderThanMs: Long = 0L
+        ) {
+            if (!cacheDir.exists() || !cacheDir.isDirectory) return
+            val nowMs = System.currentTimeMillis()
+            val activePath = runCatching { activeWorkDir?.canonicalPath }.getOrNull()
+            cacheDir.listFiles()?.forEach { entry ->
+                val name = entry.name
+                when {
+                    entry.isDirectory && name == "frames" -> {
+                        runCatching { entry.deleteRecursively() }
+                    }
+                    entry.isDirectory && name.startsWith("toonforge_work_") -> {
+                        val entryPath = runCatching { entry.canonicalPath }.getOrNull()
+                        if (activePath == null || entryPath != activePath) {
+                            runCatching { entry.deleteRecursively() }
+                        }
+                    }
+                    entry.isFile && name.endsWith(".png", ignoreCase = true) -> {
+                        runCatching { entry.delete() }
+                    }
+                    entry.isFile && name.startsWith("render_") && name.endsWith(".mp4", ignoreCase = true) -> {
+                        runCatching { entry.delete() }
+                    }
+                    entry.isFile && name.startsWith("toonforge_batch_") && name.endsWith(".json", ignoreCase = true) -> {
+                        val ageMs = (nowMs - entry.lastModified()).coerceAtLeast(0L)
+                        if (deleteBatchJsonOlderThanMs <= 0L || ageMs >= deleteBatchJsonOlderThanMs) {
+                            runCatching { entry.delete() }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private class PendingPacket(
@@ -413,6 +454,7 @@ class DeterministicVideoExporter(
             runCatching { audioEncoder?.release() }
             runCatching { mediaMuxer?.release() }
             runCatching { if (tempMp4File.exists()) tempMp4File.delete() }
+            runCatching { cleanupTemporaryCacheBuffers(tempCacheDir) }
         }
     }
 

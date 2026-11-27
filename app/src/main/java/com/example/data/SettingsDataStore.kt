@@ -12,6 +12,7 @@ import com.example.model.ElevenLabsKeyEntry
 import com.example.model.PromptTemplate
 import com.example.model.PronunciationEntry
 import com.example.model.ScriptSourceMode
+import com.example.model.StoryNiche
 import com.example.model.StudioSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -56,6 +57,7 @@ class SettingsDataStore(private val context: Context) {
         val DETECTED_CHAT_BASE_URL = stringPreferencesKey("detected_chat_base_url")
         val NARRATION_SPEED = floatPreferencesKey("narration_speed")
         val ENABLE_AI_BACKGROUND_ART = booleanPreferencesKey("enable_ai_background_art")
+        val SELECTED_NICHE = stringPreferencesKey("selected_niche")
     }
 
     private fun cleanCredential(raw: String?): String =
@@ -111,7 +113,8 @@ class SettingsDataStore(private val context: Context) {
             customBgmName = prefs[Keys.CUSTOM_BGM_NAME] ?: "",
             pronunciationDictionary = parsePronunciationDict(prefs[Keys.PRONUNCIATION_DICT_JSON]),
             narrationSpeed = (prefs[Keys.NARRATION_SPEED] ?: 1.0f).coerceIn(0.85f, 1.15f),
-            enableAiBackgroundArt = prefs[Keys.ENABLE_AI_BACKGROUND_ART] ?: false
+            enableAiBackgroundArt = prefs[Keys.ENABLE_AI_BACKGROUND_ART] ?: false,
+            selectedNiche = StoryNiche.fromRaw(prefs[Keys.SELECTED_NICHE])
         )
     }
 
@@ -345,6 +348,12 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setEnableAiBackgroundArt(enabled: Boolean) {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.ENABLE_AI_BACKGROUND_ART] = enabled
+        }
+    }
+
+    suspend fun setSelectedNiche(niche: StoryNiche) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.SELECTED_NICHE] = niche.nicheKey
         }
     }
 

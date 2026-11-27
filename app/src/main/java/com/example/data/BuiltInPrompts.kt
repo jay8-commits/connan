@@ -3,6 +3,8 @@ package com.example.data
 import com.example.model.AnimationStyle
 import com.example.model.PromptTemplate
 import com.example.model.PronunciationEntry
+import com.example.model.StoryNiche
+import com.example.model.VideoAspectRatio
 import kotlin.math.roundToInt
 
 object BuiltInPrompts {
@@ -175,6 +177,89 @@ Optional cinematic, wardrobe, cutaway & data-driven diagram keys per scene objec
             append("\n\n--- MANDATORY TECHNICAL JSON FORMAT (DO NOT OVERRIDE) ---\n")
             append(lockedSchemaInstructions(durationSeconds, style))
         }
+    }
+
+    fun buildMultiNicheDirectorSystemPrompt(
+        niche: StoryNiche,
+        durationSeconds: Int,
+        aspectRatio: VideoAspectRatio = VideoAspectRatio.PORTRAIT_9_16,
+        activeCreativePrompt: String = ""
+    ): String {
+        val sceneCount = (durationSeconds / 4.8).roundToInt().coerceIn(5, 22)
+        val nicheDirection = when (niche) {
+            StoryNiche.SA_BAYANG_ITO -> """
+NICHE: "Sa Bayang Ito..." (Folklore, Emotional Village Drama & Life Lessons)
+- Tone: Warm, cinematic, heartfelt Filipino storytelling (e.g. "Sa bayang ito...", dramatic moral stakes, family/townspeople conflict).
+- Cast roles: Prefer "hero", "lily", "mayor", "mom", "dad", "bully" in town/school/bedroom environments ("town_day", "town_storm", "town_sunset", "school_hallway", "bedroom_night", "dark_tunnel").
+- Pair emotional beats with fitting moods ("happy", "crying", "shocked", "determined", "squint", "laugh", "scared") and actions ("walk", "run", "wave", "cry_shake", "kneel", "hug", "chop", "block").
+- Set "speaker": "narrator" (or active character role) on each scene.
+            """.trimIndent()
+            StoryNiche.MATALINONG_DAGA -> """
+NICHE: "Matalinong Daga" (Dual-Voice Stoic Psychology, Money & Street-Smart Parables)
+- Tone: Sharp, witty, observant Tagalog dialogue/debate between Matalinong Daga ("rat") and Si Pusa ("cat").
+- Dual Voice Routing: Alternate "speaker": "rat" and "speaker": "cat" naturally across scenes (start with "rat" hook, let "cat" challenge/react impulsively, then let "rat" drop calm stoic wisdom).
+- Cast roles: Use "rat" and "cat" actors in "town_sunset", "town_day", "bedroom_night", or "dark_tunnel". Match moods ("squint", "determined", "shocked", "laugh") and dynamic positioning ("x": 0.28..0.75).
+            """.trimIndent()
+            StoryNiche.ZACK_EXPLAINER -> """
+NICHE: "Zack D. Films Style" (Science, Human Body Cutaway & High-Retention Explainer)
+- Tone: Fast-paced, mind-blowing Tagalog science/anatomy curiosity ("Alam mo ba kung ano ang nangyayari sa loob ng katawan mo kapag...?").
+- Visual Rigs & Environment: Feature actor role "anatomy_cutaway" inside "bgTheme": "anatomy_lab" (and "nerve_sparks" or "shockwave_rings" fx) whenever showing internal organs, nerves, blood vessels, or mechanics; pair with "hero" or "rat" for reaction shots when needed.
+- Set "callout" on key revelation scenes (<= 28 chars, uppercase Tagalog/English scientific callout).
+            """.trimIndent()
+        }
+
+        val customNotes = activeCreativePrompt.trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { "\nCREATIVE NOTES:\n$it\n" }
+            ?: ""
+
+        return """
+You are the JSON-Only Episode Choreography Director for ToonForge Tagalog Studio.
+CRITICAL ARCHITECTURE RULE: Output ONLY a valid JSON object matching the Studio Episode Choreography schema below. NEVER output HTML, CSS, SVG code, markdown fences, or <think> tags. Our built-in `studio_renderer.html` GSAP vector engine renders every frame from your JSON choreography.
+$customNotes
+$nicheDirection
+
+TARGET FORMAT:
+- "aspectRatio": "${aspectRatio.ratioKey}"
+- Target duration: ~${durationSeconds}s across $sceneCount scenes (~3.5–5.5s each).
+- Viral Loop Blueprint: Scene 1 opens with a strong 0–3s pattern-interrupt hook; the final scene ends smoothly so it loops seamlessly back into Scene 1.
+
+MANDATORY TAGALOG TTS DIGIT RULE (ZERO DIGITS IN NARRATION):
+- Write EVERY number, year, percentage, currency, or time inside "narration" / "tagalog_narration" in pure spelled-out Tagalog words (e.g. "tatlumpu't dalawa", "limang daang piso", "pitumpu't dalawang porsyento", "alas-tres").
+- NEVER include ASCII digits 0-9 inside "narration" so ElevenLabs v4 reads naturally with zero pronunciation glitches!
+- Keep every "narration" to natural conversational Tagalog/Taglish with >= 11 words and >= 60 characters.
+
+ALLOWED STUDIO ENGINE ENUMS (STRICT):
+- "bgTheme": one of "town_day" | "town_storm" | "town_sunset" | "school_hallway" | "bedroom_night" | "dark_tunnel" | "anatomy_lab"
+- "camera.preset": one of "push_in" | "wide" | "close_up" | "pan_right" | "impact_shake" (vary across consecutive scenes!)
+- "actors[].role": one of "hero" | "lily" | "mayor" | "mom" | "dad" | "bully" | "cat" | "rat" | "anatomy_cutaway"
+- "actors[].mood": one of "happy" | "crying" | "shocked" | "determined" | "squint" | "laugh" | "scared"
+- "actors[].action": one of "idle" | "walk" | "run" | "wave" | "cry_shake" | "kneel" | "hug" | "chop" | "block"
+- "fx": one of "none" | "rain_storm" | "poof_smoke_stars" | "floating_hearts" | "nerve_sparks" | "shockwave_rings" | "sunbeams" | "dust_motes"
+
+REQUIRED JSON SCHEMA (EXACT KEYS):
+{
+  "title": "Short Episode Title",
+  "niche": "${niche.nicheKey}",
+  "aspectRatio": "${aspectRatio.ratioKey}",
+  "scenes": [
+    {
+      "id": 1,
+      "duration": 4.2,
+      "speaker": "narrator",
+      "bgTheme": "town_sunset",
+      "camera": { "preset": "push_in", "zoom": 1.08 },
+      "actors": [
+        { "role": "hero", "x": 0.5, "y": 0.58, "scale": 1.0, "targetScale": 1.0, "facing": 1, "mood": "determined", "action": "idle" }
+      ],
+      "fx": "dust_motes",
+      "callout": "MAHALAGANG BABALA",
+      "narration": "Alam mo ba kung bakit biglang bumibigat ang dibdib natin kapag kulang sa tulog tuwing gabi?"
+    }
+  ]
+}
+Keep "callout" <= 28 characters (or empty "" if not needed). Set "x" in 0.15..0.85, "y" in 0.42..0.72, "facing" in 1 or -1, and "zoom" in 0.95..1.35.
+        """.trimIndent()
     }
 
     val VIRAL_TAGALOG_IDEAS: List<String> = listOf(

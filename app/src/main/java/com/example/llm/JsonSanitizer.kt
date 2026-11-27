@@ -23,6 +23,9 @@ import com.example.model.SceneScript
 import com.example.model.ShotFraming
 import com.example.model.ShotType
 import com.example.model.StatusPill
+import com.example.model.StoryNiche
+import com.example.model.StudioActorSpec
+import com.example.model.StudioCameraSpec
 import com.example.model.WorldFx
 import org.json.JSONArray
 import org.json.JSONObject
@@ -119,7 +122,13 @@ object JsonSanitizer {
         }
     }
 
-    private fun tryUnwrapRootObjectArray(space: String): JSONArray? {
+    private data class UnwrappedRootArray(
+        val array: JSONArray,
+        val title: String = "",
+        val niche: StoryNiche? = null
+    )
+
+    private fun tryUnwrapRootObjectArrayWithMeta(space: String): UnwrappedRootArray? {
         val trimmed = space.trim()
         val objectCandidates = buildList {
             if (trimmed.startsWith("{")) add(trimmed)
@@ -138,21 +147,26 @@ object JsonSanitizer {
             } catch (_: Exception) {
                 continue
             }
+            val rootTitle = root.optString("title", "").trim()
+            val rootNiche = root.optString("niche", "").trim().takeIf { it.isNotEmpty() }?.let { StoryNiche.fromRaw(it) }
             for (key in orderedKeys) {
                 val arr = root.optJSONArray(key) ?: continue
                 if (isValidSceneJsonArray(arr, requireTagalogNarration = true)) {
-                    return arr
+                    return UnwrappedRootArray(array = arr, title = rootTitle, niche = rootNiche)
                 }
             }
             for (key in orderedKeys) {
                 val arr = root.optJSONArray(key) ?: continue
                 if (isValidSceneJsonArray(arr, requireTagalogNarration = false)) {
-                    return arr
+                    return UnwrappedRootArray(array = arr, title = rootTitle, niche = rootNiche)
                 }
             }
         }
         return null
     }
+
+    private fun tryUnwrapRootObjectArray(space: String): JSONArray? =
+        tryUnwrapRootObjectArrayWithMeta(space)?.array
 
     fun extractJsonArrayText(rawOutput: String): String {
         val spaces = stripThinkAndMarkdownFences(rawOutput)
@@ -259,17 +273,21 @@ object JsonSanitizer {
 
     private fun isNarrationObjectArrayText(slice: String): Boolean {
         if (!isObjectArrayText(slice)) return false
-        return slice.contains("\"tagalog_narration\"")
+        return slice.contains("\"tagalog_narration\"") ||
+            containsKeyFollowedByColon(slice, "\"narration\"")
     }
 
     /**
      * Pure-Kotlin check confirming the `[ ... ]` slice begins with a JSON object `{ ... }`
-     * (rejecting `[Scene 1]`, `["tag1", "tag2"]`, `[1, 2]`, `[]`) and contains `"tagalog_narration"` or `"scene_id"`.
+     * (rejecting `[Scene 1]`, `["tag1", "tag2"]`, `[1, 2]`, `[]`) and contains scene keys.
      */
     private fun isSceneObjectArrayText(slice: String): Boolean {
         if (!isObjectArrayText(slice)) return false
         return containsKeyFollowedByColon(slice, "\"tagalog_narration\"") ||
-            containsKeyFollowedByColon(slice, "\"scene_id\"")
+            containsKeyFollowedByColon(slice, "\"narration\"") ||
+            containsKeyFollowedByColon(slice, "\"scene_id\"") ||
+            containsKeyFollowedByColon(slice, "\"id\"") ||
+            containsKeyFollowedByColon(slice, "\"bgTheme\"")
     }
 
     private fun isObjectArrayText(slice: String): Boolean {
@@ -365,15 +383,19 @@ object JsonSanitizer {
 
         // 1. Prefer direct root JSONObject parsing (`{"scenes": [...]}` / `{"storyboard": [...]}`)
         var selectedArray: JSONArray? = null
+        var episodeTitle = ""
+        var rootNiche: StoryNiche? = null
         for (space in spaces) {
-            val unwrapped = tryUnwrapRootObjectArray(space)
+            val unwrapped = tryUnwrapRootObjectArrayWithMeta(space)
             if (unwrapped != null) {
-                selectedArray = unwrapped
+                selectedArray = unwrapped.array
+                episodeTitle = unwrapped.title
+                rootNiche = unwrapped.niche
                 break
             }
         }
 
-        // 2. Fallback: scan `[...]` blocks in text whose elements are JSONObjects containing `"tagalog_narration"`
+        // 2. Fallback: scan `[...]` blocks in text whose elements are JSONObjects containing narration keys
         var lastSyntaxError: Exception? = null
         if (selectedArray == null) {
             val candidates = collectAllArrayCandidates(spaces)
@@ -434,7 +456,7 @@ object JsonSanitizer {
         for (i in 0 until array.length()) {
             val obj = array.optJSONObject(i)
                 ?: throw MalformedSceneJsonException("Element at index $i is not a JSONObject")
-            scenes.add(parseSceneObject(obj, i))
+            scenes.add(parseSceneObject(obj, i, episodeTitle = episodeTitle, rootNiche = rootNiche))
         }
         return scenes
     }
@@ -447,44 +469,94 @@ object JsonSanitizer {
         var hasMatchingKey = false
         for (i in 0 until array.length()) {
             val obj = array.optJSONObject(i) ?: return false
-            if (obj.has("tagalog_narration")) {
+            if (obj.has("tagalog_narration") || obj.has("narration")) {
                 hasMatchingKey = true
-            } else if (!requireTagalogNarration && obj.has("scene_id")) {
+            } else if (!requireTagalogNarration && (obj.has("scene_id") || obj.has("id"))) {
                 hasMatchingKey = true
             }
         }
         return hasMatchingKey
     }
 
-    private fun parseSceneObject(obj: JSONObject, index: Int): SceneScript {
-        for (key in REQUIRED_KEYS) {
-            if (!obj.has(key) || obj.isNull(key)) {
-                throw MalformedSceneJsonException("Scene[$index] missing required key '$key'")
+    private fun parseSceneObject(
+        obj: JSONObject,
+        index: Int,
+        episodeTitle: String = "",
+        rootNiche: StoryNiche? = null
+    ): SceneScript {
+        val isStudioChoreography = obj.has("narration") ||
+            obj.has("bgTheme") ||
+            obj.has("actors") ||
+            (obj.has("camera") && obj.optJSONObject("camera") != null)
+
+        if (!isStudioChoreography) {
+            for (key in REQUIRED_KEYS) {
+                if (!obj.has(key) || obj.isNull(key)) {
+                    throw MalformedSceneJsonException("Scene[$index] missing required key '$key'")
+                }
             }
         }
 
-        val sceneId = obj.optInt("scene_id", index + 1)
-        val narration = TagalogNarrationValidator.cleanPreservingAudioTags(obj.optString("tagalog_narration", ""))
-        val rawBgPrompt = obj.optString("background_prompt", "").trim()
-        val rawVisualDesc = obj.optString("visual_description", "").trim()
-        val bgPrompt = rawBgPrompt.ifBlank { rawVisualDesc }
-        val visualDesc = rawVisualDesc.ifBlank { rawBgPrompt }
-        val camRaw = obj.optString("camera_motion", "").trim().uppercase()
-        val roleRaw = obj.optString("actor_role", "").trim().uppercase()
-        val actionRaw = obj.optString("actor_action", "").trim().uppercase()
-        val fxRaw = obj.optString("world_fx", "").trim().uppercase()
+        val sceneId = when {
+            obj.has("scene_id") && !obj.isNull("scene_id") -> obj.optInt("scene_id", index + 1)
+            obj.has("id") && !obj.isNull("id") -> obj.optInt("id", index + 1)
+            else -> index + 1
+        }.coerceAtLeast(1)
 
+        val rawNarrationText = obj.optString("tagalog_narration", "")
+            .ifBlank { obj.optString("narration", "") }
+        val narration = TagalogNarrationValidator.cleanPreservingAudioTags(rawNarrationText)
         if (narration.isEmpty()) {
-            throw MalformedSceneJsonException("Scene[$index] has empty tagalog_narration")
+            throw MalformedSceneJsonException("Scene[$index] has empty narration")
         }
         TagalogNarrationValidator.validateOrThrow(narration)
+
+        // Studio Episode Choreography fields
+        val durationSec = obj.optDouble("duration", 0.0)
+            .let { if (it > 0.2 && !it.isNaN()) it else 0.0 }
+        val bgTheme = obj.optString("bgTheme", "").trim()
+        val camObj = obj.optJSONObject("camera")
+        val cameraSpec = if (camObj != null) {
+            StudioCameraSpec(
+                preset = camObj.optString("preset", "push_in").trim().ifBlank { "push_in" },
+                zoom = camObj.optDouble("zoom", 1.08).toFloat().coerceIn(0.85f, 1.6f)
+            )
+        } else {
+            StudioCameraSpec()
+        }
+        val actorsList = parseActorsArray(obj.optJSONArray("actors"))
+        val fxKey = obj.optString("fx", "").trim()
+        val calloutText = obj.optString("callout", "").trim()
+
+        val rawBgPrompt = obj.optString("background_prompt", "").trim()
+        val rawVisualDesc = obj.optString("visual_description", "").trim()
+        val studioSynthesizedVisual = if (isStudioChoreography && rawVisualDesc.isEmpty() && rawBgPrompt.isEmpty()) {
+            synthesizeStudioVisualDescription(bgTheme, cameraSpec, actorsList, fxKey, calloutText)
+        } else ""
+        val bgPrompt = rawBgPrompt.ifBlank { rawVisualDesc.ifBlank { studioSynthesizedVisual } }
+        val visualDesc = rawVisualDesc.ifBlank { rawBgPrompt.ifBlank { studioSynthesizedVisual } }
+
+        val camRaw = obj.optString("camera_motion", "").trim().uppercase().ifBlank {
+            mapStudioPresetToCameraMotion(cameraSpec.preset, index).name
+        }
+        val primaryActor = actorsList.firstOrNull()
+        val roleRaw = obj.optString("actor_role", "").trim().uppercase().ifBlank {
+            mapStudioRoleToActorRole(primaryActor?.role).name
+        }
+        val actionRaw = obj.optString("actor_action", "").trim().uppercase().ifBlank {
+            mapStudioActionToActorAction(primaryActor?.action).name
+        }
+        val fxRaw = obj.optString("world_fx", "").trim().uppercase().ifBlank {
+            mapStudioFxToWorldFx(fxKey).name
+        }
+
         if (bgPrompt.isEmpty() && visualDesc.isEmpty()) {
             throw MalformedSceneJsonException("Scene[$index] missing visual_description/background_prompt")
         }
 
         // Backward-compatible optional HUD & kinetic motion-graphics fields
         val statusPill = StatusPill.fromRaw(obj.optString("status_pill", "NONE"))
-        val calloutBanner = obj.optString("callout_banner", "").trim()
+        val calloutBanner = obj.optString("callout_banner", "").trim().ifBlank { calloutText }
         val hudWidget = HudWidget.fromRaw(obj.optString("hud_widget", "NONE"))
         val hudLabel = obj.optString("hud_label", "").trim()
         val hudUnit = obj.optString("hud_unit", "%").trim().ifBlank { "%" }
@@ -578,6 +650,25 @@ object JsonSanitizer {
             .ifBlank { obj.optString("svg", "") }
         val sanitizedCustomSvg = sanitizeCustomSvg(rawCustomSvg)
         val speaker = obj.optString("speaker", "").trim()
+        val resolvedHasCharacter = hasCharacter ?: if (isStudioChoreography) {
+            actorsList.any { !it.role.equals("anatomy_cutaway", ignoreCase = true) }
+        } else null
+        val resolvedFraming = if (shotFraming == ShotFraming.AUTO && isStudioChoreography) {
+            when (cameraSpec.preset.lowercase()) {
+                "close_up" -> ShotFraming.CLOSE_UP_FACE
+                "wide" -> ShotFraming.WIDE_FULL_BODY
+                else -> ShotFraming.entries.filter { it != ShotFraming.AUTO }[index % 5]
+            }
+        } else shotFraming
+        val resolvedPose = if (characterPose == CharacterPose.AUTO && isStudioChoreography) {
+            when (primaryActor?.action?.lowercase()) {
+                "walk", "run" -> CharacterPose.WALK_ACROSS_LEFT_TO_RIGHT
+                "cry_shake", "kneel" -> CharacterPose.SIT_SLUMPED
+                "wave", "hug" -> CharacterPose.POINT_AND_GESTURE
+                "chop", "block" -> CharacterPose.SHOCK_AIRBORNE_RECOIL
+                else -> CharacterPose.entries.filter { it != CharacterPose.AUTO }[index % 6]
+            }
+        } else characterPose
 
         return SceneScript(
             sceneId = sceneId,
@@ -594,8 +685,8 @@ object JsonSanitizer {
             hudFromValue = hudFrom,
             hudToValue = hudTo,
             checklistItems = checklistItems,
-            shotFraming = shotFraming,
-            characterPose = characterPose,
+            shotFraming = resolvedFraming,
+            characterPose = resolvedPose,
             handProp = handProp,
             shotType = shotType,
             secondaryActorRole = secondaryActorRole,
@@ -621,13 +712,119 @@ object JsonSanitizer {
             step3 = step3,
             pointerCallouts = pointerCallouts,
             visualDescription = visualDesc,
-            hasCharacter = hasCharacter,
+            hasCharacter = resolvedHasCharacter,
             lightingState = lightingState,
             hudUnit = hudUnit,
             sfxCues = sfxCues,
             customSvg = sanitizedCustomSvg,
-            speaker = speaker
+            speaker = speaker,
+            durationSec = durationSec,
+            bgTheme = bgTheme,
+            cameraSpec = cameraSpec,
+            actors = actorsList,
+            fxKey = fxKey,
+            episodeTitle = episodeTitle,
+            storyNiche = rootNiche ?: StoryNiche.SA_BAYANG_ITO
         )
+    }
+
+    fun parseActorsArray(arr: JSONArray?): List<StudioActorSpec> {
+        if (arr == null || arr.length() == 0) return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val role = obj.optString("role", "hero").trim().ifBlank { "hero" }
+                val x = obj.optDouble("x", 0.5).toFloat().coerceIn(0.08f, 0.92f)
+                val y = obj.optDouble("y", 0.58).toFloat().coerceIn(0.20f, 0.85f)
+                val scale = obj.optDouble("scale", 1.0).toFloat().coerceIn(0.4f, 2.2f)
+                val targetScale = obj.optDouble("targetScale", scale.toDouble()).toFloat().coerceIn(0.4f, 2.4f)
+                val facing = if (obj.optInt("facing", 1) < 0) -1 else 1
+                val mood = obj.optString("mood", "determined").trim().ifBlank { "determined" }
+                val action = obj.optString("action", "idle").trim().ifBlank { "idle" }
+                add(
+                    StudioActorSpec(
+                        role = role,
+                        x = x,
+                        y = y,
+                        scale = scale,
+                        targetScale = targetScale,
+                        facing = facing,
+                        mood = mood,
+                        action = action
+                    )
+                )
+            }
+        }
+    }
+
+    private fun synthesizeStudioVisualDescription(
+        bgTheme: String,
+        camera: StudioCameraSpec,
+        actors: List<StudioActorSpec>,
+        fxKey: String,
+        callout: String
+    ): String {
+        val primary = actors.firstOrNull()
+        val subjectPhrase = when (primary?.role?.lowercase()) {
+            "rat" -> "Matalinong Daga character standing alert holding small prop"
+            "cat" -> "expressive Si Pusa character gesturing with curious face"
+            "anatomy_cutaway" -> "detailed human anatomy cross-section cutaway diagram highlighting neural nerve pathways"
+            "lily" -> "warm animated village girl character smiling in soft pose"
+            "mayor" -> "stern town mayor character standing with clenched hands"
+            else -> "animated 2.5D character standing in dynamic pose on stage"
+        }
+        val moodPhrase = when (primary?.mood?.lowercase()) {
+            "crying", "scared" -> "tearful worried expression"
+            "shocked" -> "wide-eyed shocked expression"
+            "laugh", "happy" -> "bright smiling expression"
+            "squint" -> "calculating narrowed-eye expression"
+            else -> "focused determined expression"
+        }
+        val envPhrase = when (bgTheme.lowercase()) {
+            "town_storm" -> "stormy Philippine town street backdrop with dark thunderclouds"
+            "town_sunset" -> "warm golden sunset village street with soft twilight sky"
+            "school_hallway" -> "colorful sunlit school hallway corridor with lockers and floor reflections"
+            "bedroom_night" -> "cozy midnight bedroom interior lit by warm bedside lamp"
+            "dark_tunnel" -> "dramatic shadowy stone tunnel interior with rim light"
+            "anatomy_lab" -> "clean dark science anatomy laboratory backdrop with glowing telemetry grid"
+            else -> "bright colorful Philippine town plaza backdrop under crisp daylight sky"
+        }
+        val fxPhrase = if (fxKey.isNotBlank() && !fxKey.equals("none", ignoreCase = true)) {
+            "cinematic rim lighting with subtle $fxKey atmospheric particles"
+        } else {
+            "soft atmospheric rim lighting and crisp ambient shadows"
+        }
+        val calloutHint = if (callout.isNotBlank()) "highlighting $callout" else "using ${camera.preset} camera"
+        return "$subjectPhrase with $moodPhrase and ${primary?.action ?: "idle"} motion inside $envPhrase, $fxPhrase, $calloutHint."
+    }
+
+    private fun mapStudioPresetToCameraMotion(preset: String, index: Int): CameraMotion = when (preset.lowercase()) {
+        "push_in", "close_up" -> CameraMotion.ZOOM_IN
+        "wide" -> CameraMotion.ZOOM_OUT
+        "pan_right" -> if (index % 2 == 0) CameraMotion.PAN_RIGHT else CameraMotion.PAN_LEFT
+        "impact_shake" -> CameraMotion.IMPACT_SHAKE
+        else -> listOf(CameraMotion.ZOOM_IN, CameraMotion.PAN_RIGHT, CameraMotion.ZOOM_OUT, CameraMotion.PAN_LEFT)[index % 4]
+    }
+
+    private fun mapStudioRoleToActorRole(role: String?): ActorRole = when (role?.lowercase()) {
+        "hero", "lily" -> ActorRole.HERO
+        "mayor", "mom", "dad" -> ActorRole.RICH_MAN
+        "bully" -> ActorRole.POOR_MAN
+        else -> ActorRole.NARRATOR
+    }
+
+    private fun mapStudioActionToActorAction(action: String?): ActorAction = when (action?.lowercase()) {
+        "walk", "run" -> ActorAction.WALK_IN
+        "wave", "hug" -> ActorAction.THUMBS_UP
+        "cry_shake", "kneel" -> ActorAction.CRY_SHAKE
+        "chop", "block" -> ActorAction.SURPRISED_JUMP
+        else -> ActorAction.TALK_BOUNCE
+    }
+
+    private fun mapStudioFxToWorldFx(fx: String): WorldFx = when (fx.lowercase()) {
+        "nerve_sparks", "shockwave_rings" -> WorldFx.FIRE_SPARKS
+        "floating_hearts", "sunbeams" -> WorldFx.COIN_RAIN
+        else -> WorldFx.NONE
     }
 
     private val SVG_DRAW_TAGS = listOf(
