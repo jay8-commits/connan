@@ -9,17 +9,13 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.ElevenLabsKeyEntry
-import com.example.model.PromptTemplate
 import com.example.model.PronunciationEntry
-import com.example.model.ScriptSourceMode
-import com.example.model.StoryNiche
 import com.example.model.StudioSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "toonforge_settings"
@@ -30,20 +26,10 @@ typealias SettingsRepository = SettingsDataStore
 class SettingsDataStore(private val context: Context) {
 
     private object Keys {
-        val PROMPT_TEMPLATES_JSON = stringPreferencesKey("prompt_templates_json")
-        val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         val ELEVENLABS_KEYS_JSON = stringPreferencesKey("elevenlabs_keys_json")
         val SELECTED_VOICE_ID = stringPreferencesKey("selected_voice_id")
         val SECONDARY_VOICE_ID = stringPreferencesKey("secondary_voice_id")
-        val GROQ_API_KEY = stringPreferencesKey("groq_api_key")
-        val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
-        val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
-        val CUSTOM_MODEL = stringPreferencesKey("custom_model")
-        val CUSTOM_API_KEY = stringPreferencesKey("custom_api_key")
-        val USE_AI_HORDE = booleanPreferencesKey("use_ai_horde")
-        val SCRIPT_SOURCE_MODE = stringPreferencesKey("script_source_mode")
         val DIRECT_SCRIPT_TEXT = stringPreferencesKey("direct_script_text")
-        val AI_HORDE_KEY = stringPreferencesKey("ai_horde_key")
         val CUSTOM_SPRITE_PATHS_JSON = stringPreferencesKey("custom_sprite_paths_json")
         val SPRITE_STICKER_OUTLINE = booleanPreferencesKey("sprite_sticker_outline")
         val CUSTOM_BGM_PATH = stringPreferencesKey("custom_bgm_path")
@@ -51,145 +37,30 @@ class SettingsDataStore(private val context: Context) {
         val PRONUNCIATION_DICT_JSON = stringPreferencesKey("pronunciation_dict_json")
         val TTS_BASE_URL = stringPreferencesKey("tts_base_url")
         val TTS_MODEL_ID = stringPreferencesKey("tts_model_id")
-        val LLM_BASE_URL = stringPreferencesKey("llm_base_url")
-        val LLM_API_KEY = stringPreferencesKey("llm_api_key")
-        val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
-        val DETECTED_CHAT_BASE_URL = stringPreferencesKey("detected_chat_base_url")
         val NARRATION_SPEED = floatPreferencesKey("narration_speed")
-        val ENABLE_AI_BACKGROUND_ART = booleanPreferencesKey("enable_ai_background_art")
-        val SELECTED_NICHE = stringPreferencesKey("selected_niche")
     }
 
     private fun cleanCredential(raw: String?): String =
         raw.orEmpty().replace("\r", "").replace("\n", "").trim()
 
     val settingsFlow: Flow<StudioSettings> = context.settingsDataStore.data.map { prefs ->
-        val templates = parseTemplates(prefs[Keys.PROMPT_TEMPLATES_JSON])
-        val activeId = prefs[Keys.ACTIVE_PROMPT_ID]
-            ?.takeIf { id -> templates.any { it.id == id } }
-            ?: templates.first().id
-
-        val legacyBaseUrl = cleanCredential(prefs[Keys.CUSTOM_BASE_URL])
-        val legacyModel = cleanCredential(prefs[Keys.CUSTOM_MODEL])
-        val legacyApiKey = cleanCredential(prefs[Keys.CUSTOM_API_KEY])
-        val universalBaseUrl = cleanCredential(prefs[Keys.LLM_BASE_URL]).ifBlank { legacyBaseUrl }
-        val universalModel = cleanCredential(prefs[Keys.SELECTED_MODEL_ID]).ifBlank { legacyModel }
-        val universalApiKey = cleanCredential(prefs[Keys.LLM_API_KEY]).ifBlank { legacyApiKey }
-
-        val legacyUseAiHorde = prefs[Keys.USE_AI_HORDE] ?: false
-        val savedModeRaw = prefs[Keys.SCRIPT_SOURCE_MODE]
-        val resolvedMode = if (!savedModeRaw.isNullOrBlank()) {
-            ScriptSourceMode.fromRaw(savedModeRaw)
-        } else if (legacyUseAiHorde) {
-            ScriptSourceMode.AI_HORDE
-        } else {
-            ScriptSourceMode.CUSTOM_LLM
-        }
-
         StudioSettings(
-            promptTemplates = templates,
-            activePromptId = activeId,
             elevenLabsKeys = parseElevenLabsKeys(prefs[Keys.ELEVENLABS_KEYS_JSON]),
             selectedVoiceId = cleanCredential(prefs[Keys.SELECTED_VOICE_ID]).ifBlank { "N2IVS1w4EtoT3dr4eOWO" },
             secondaryVoiceId = cleanCredential(prefs[Keys.SECONDARY_VOICE_ID]),
             ttsBaseUrl = cleanCredential(prefs[Keys.TTS_BASE_URL]).ifBlank { "https://api.elevenlabs.io" },
             ttsModelId = cleanCredential(prefs[Keys.TTS_MODEL_ID]).ifBlank { "eleven_v4" },
-            llmBaseUrl = universalBaseUrl,
-            llmApiKey = universalApiKey,
-            selectedModelId = universalModel,
-            detectedChatBaseUrl = cleanCredential(prefs[Keys.DETECTED_CHAT_BASE_URL]),
-            groqApiKey = cleanCredential(prefs[Keys.GROQ_API_KEY]),
-            openRouterApiKey = cleanCredential(prefs[Keys.OPENROUTER_API_KEY]),
-            customBaseUrl = legacyBaseUrl,
-            customModel = legacyModel,
-            customApiKey = legacyApiKey,
-            useAiHorde = resolvedMode == ScriptSourceMode.AI_HORDE,
-            scriptSourceMode = resolvedMode,
             directScriptText = prefs[Keys.DIRECT_SCRIPT_TEXT] ?: "",
-            aiHordeKey = cleanCredential(prefs[Keys.AI_HORDE_KEY]).ifBlank { "0000000000" },
             customSpritePaths = parseSpritePaths(prefs[Keys.CUSTOM_SPRITE_PATHS_JSON]),
             spriteStickerOutline = prefs[Keys.SPRITE_STICKER_OUTLINE] ?: true,
             customBgmPath = prefs[Keys.CUSTOM_BGM_PATH] ?: "",
             customBgmName = prefs[Keys.CUSTOM_BGM_NAME] ?: "",
             pronunciationDictionary = parsePronunciationDict(prefs[Keys.PRONUNCIATION_DICT_JSON]),
-            narrationSpeed = (prefs[Keys.NARRATION_SPEED] ?: 1.0f).coerceIn(0.85f, 1.15f),
-            enableAiBackgroundArt = prefs[Keys.ENABLE_AI_BACKGROUND_ART] ?: false,
-            selectedNiche = StoryNiche.fromRaw(prefs[Keys.SELECTED_NICHE])
+            narrationSpeed = (prefs[Keys.NARRATION_SPEED] ?: 1.0f).coerceIn(0.85f, 1.15f)
         )
     }
 
     suspend fun getSnapshot(): StudioSettings = settingsFlow.first()
-
-    suspend fun setActivePrompt(templateId: String) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.ACTIVE_PROMPT_ID] = templateId
-        }
-    }
-
-    suspend fun importTxtTemplate(name: String, content: String): PromptTemplate {
-        val cleanName = name.removeSuffix(".txt").removeSuffix(".TXT").trim().ifBlank { "Imported Prompt" }
-        val newTemplate = PromptTemplate(
-            id = "custom_${UUID.randomUUID().toString().take(8)}",
-            name = cleanName,
-            content = content.trim(),
-            isBuiltIn = false
-        )
-        context.settingsDataStore.edit { prefs ->
-            val current = parseTemplates(prefs[Keys.PROMPT_TEMPLATES_JSON]).toMutableList()
-            current.add(newTemplate)
-            prefs[Keys.PROMPT_TEMPLATES_JSON] = serializeTemplates(current)
-            prefs[Keys.ACTIVE_PROMPT_ID] = newTemplate.id
-        }
-        return newTemplate
-    }
-
-    suspend fun updateTemplateContent(templateId: String, newName: String, newContent: String) {
-        context.settingsDataStore.edit { prefs ->
-            val current = parseTemplates(prefs[Keys.PROMPT_TEMPLATES_JSON]).map { item ->
-                if (item.id == templateId) {
-                    item.copy(
-                        name = newName.trim().ifBlank { item.name },
-                        content = newContent
-                    )
-                } else {
-                    item
-                }
-            }
-            prefs[Keys.PROMPT_TEMPLATES_JSON] = serializeTemplates(current)
-        }
-    }
-
-    suspend fun resetTemplate(templateId: String): String {
-        var restoredContent = ""
-        context.settingsDataStore.edit { prefs ->
-            val defaultTemplate = BuiltInPrompts.getDefaultById(templateId)
-            val current = parseTemplates(prefs[Keys.PROMPT_TEMPLATES_JSON]).map { item ->
-                if (item.id == templateId && defaultTemplate != null) {
-                    restoredContent = defaultTemplate.content
-                    defaultTemplate
-                } else {
-                    if (item.id == templateId) restoredContent = item.content
-                    item
-                }
-            }
-            prefs[Keys.PROMPT_TEMPLATES_JSON] = serializeTemplates(current)
-        }
-        return restoredContent
-    }
-
-    suspend fun deleteTemplate(templateId: String) {
-        context.settingsDataStore.edit { prefs ->
-            val current = parseTemplates(prefs[Keys.PROMPT_TEMPLATES_JSON])
-            val target = current.firstOrNull { it.id == templateId }
-            if (target != null && !target.isBuiltIn && current.size > 1) {
-                val filtered = current.filterNot { it.id == templateId }
-                prefs[Keys.PROMPT_TEMPLATES_JSON] = serializeTemplates(filtered)
-                if (prefs[Keys.ACTIVE_PROMPT_ID] == templateId) {
-                    prefs[Keys.ACTIVE_PROMPT_ID] = filtered.first().id
-                }
-            }
-        }
-    }
 
     suspend fun setSelectedVoiceId(voiceId: String) {
         val clean = cleanCredential(voiceId)
@@ -236,34 +107,16 @@ class SettingsDataStore(private val context: Context) {
         }
     }
 
-    suspend fun saveLlmSettings(
-        llmBaseUrl: String,
-        llmApiKey: String,
-        selectedModelId: String,
-        detectedChatBaseUrl: String = "",
+    suspend fun saveTtsSettings(
         ttsBaseUrl: String = "https://api.elevenlabs.io",
         ttsModelId: String = "eleven_v4",
         selectedVoiceId: String? = null,
         secondaryVoiceId: String? = null,
-        aiHordeKey: String = "0000000000",
-        narrationSpeed: Float? = null,
-        useAiHorde: Boolean? = null
+        narrationSpeed: Float? = null
     ) {
-        val cleanBase = cleanCredential(llmBaseUrl)
-        val cleanKey = cleanCredential(llmApiKey)
-        val cleanModel = cleanCredential(selectedModelId)
-        val cleanDetected = cleanCredential(detectedChatBaseUrl)
         val cleanTtsBase = cleanCredential(ttsBaseUrl).ifBlank { "https://api.elevenlabs.io" }
         val cleanTtsModel = cleanCredential(ttsModelId).ifBlank { "eleven_v4" }
-        val cleanHorde = cleanCredential(aiHordeKey).ifBlank { "0000000000" }
         context.settingsDataStore.edit { prefs ->
-            prefs[Keys.CUSTOM_BASE_URL] = cleanBase
-            prefs[Keys.CUSTOM_MODEL] = cleanModel
-            prefs[Keys.CUSTOM_API_KEY] = cleanKey
-            prefs[Keys.LLM_BASE_URL] = cleanBase
-            prefs[Keys.LLM_API_KEY] = cleanKey
-            prefs[Keys.SELECTED_MODEL_ID] = cleanModel
-            prefs[Keys.DETECTED_CHAT_BASE_URL] = cleanDetected
             prefs[Keys.TTS_BASE_URL] = cleanTtsBase
             prefs[Keys.TTS_MODEL_ID] = cleanTtsModel
             if (selectedVoiceId != null) {
@@ -272,25 +125,9 @@ class SettingsDataStore(private val context: Context) {
             if (secondaryVoiceId != null) {
                 prefs[Keys.SECONDARY_VOICE_ID] = cleanCredential(secondaryVoiceId)
             }
-            prefs[Keys.AI_HORDE_KEY] = cleanHorde
-            if (useAiHorde != null) {
-                prefs[Keys.USE_AI_HORDE] = useAiHorde
-                prefs[Keys.SCRIPT_SOURCE_MODE] = if (useAiHorde) {
-                    ScriptSourceMode.AI_HORDE.name
-                } else {
-                    ScriptSourceMode.CUSTOM_LLM.name
-                }
-            }
             if (narrationSpeed != null) {
                 prefs[Keys.NARRATION_SPEED] = narrationSpeed.coerceIn(0.85f, 1.15f)
             }
-        }
-    }
-
-    suspend fun setScriptSourceMode(mode: ScriptSourceMode) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.SCRIPT_SOURCE_MODE] = mode.name
-            prefs[Keys.USE_AI_HORDE] = (mode == ScriptSourceMode.AI_HORDE)
         }
     }
 
@@ -300,75 +137,10 @@ class SettingsDataStore(private val context: Context) {
         }
     }
 
-    suspend fun setUseAiHorde(enabled: Boolean) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.USE_AI_HORDE] = enabled
-            prefs[Keys.SCRIPT_SOURCE_MODE] = if (enabled) {
-                ScriptSourceMode.AI_HORDE.name
-            } else {
-                ScriptSourceMode.CUSTOM_LLM.name
-            }
-        }
-    }
-
-    suspend fun setAiHordeKey(apiKey: String) {
-        val cleanHorde = cleanCredential(apiKey).ifBlank { "0000000000" }
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.AI_HORDE_KEY] = cleanHorde
-        }
-    }
-
-    suspend fun setLlmConfig(
-        llmBaseUrl: String,
-        llmApiKey: String,
-        selectedModelId: String,
-        detectedChatBaseUrl: String = ""
-    ) {
-        val cleanBase = cleanCredential(llmBaseUrl)
-        val cleanKey = cleanCredential(llmApiKey)
-        val cleanModel = cleanCredential(selectedModelId)
-        val cleanDetected = cleanCredential(detectedChatBaseUrl)
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.LLM_BASE_URL] = cleanBase
-            prefs[Keys.CUSTOM_BASE_URL] = cleanBase
-            prefs[Keys.LLM_API_KEY] = cleanKey
-            prefs[Keys.CUSTOM_API_KEY] = cleanKey
-            prefs[Keys.SELECTED_MODEL_ID] = cleanModel
-            prefs[Keys.CUSTOM_MODEL] = cleanModel
-            prefs[Keys.DETECTED_CHAT_BASE_URL] = cleanDetected
-        }
-    }
-
     suspend fun setNarrationSpeed(speed: Float) {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.NARRATION_SPEED] = speed.coerceIn(0.85f, 1.15f)
         }
-    }
-
-    suspend fun setEnableAiBackgroundArt(enabled: Boolean) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.ENABLE_AI_BACKGROUND_ART] = enabled
-        }
-    }
-
-    suspend fun setSelectedNiche(niche: StoryNiche) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.SELECTED_NICHE] = niche.nicheKey
-        }
-    }
-
-    suspend fun setDetectedModelSelection(
-        llmBaseUrl: String,
-        llmApiKey: String,
-        selectedModelId: String,
-        detectedChatBaseUrl: String
-    ) {
-        setLlmConfig(
-            llmBaseUrl = llmBaseUrl,
-            llmApiKey = llmApiKey,
-            selectedModelId = selectedModelId,
-            detectedChatBaseUrl = detectedChatBaseUrl
-        )
     }
 
     suspend fun setTtsBaseUrl(ttsBaseUrl: String) {
@@ -438,44 +210,6 @@ class SettingsDataStore(private val context: Context) {
             prefs[Keys.PRONUNCIATION_DICT_JSON] =
                 serializePronunciationDict(BuiltInPrompts.DEFAULT_PRONUNCIATION_DICTIONARY)
         }
-    }
-
-    private fun parseTemplates(json: String?): List<PromptTemplate> {
-        if (json.isNullOrBlank()) return BuiltInPrompts.DEFAULT_TEMPLATES
-        return try {
-            val arr = JSONArray(json)
-            val parsed = buildList {
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    add(
-                        PromptTemplate(
-                            id = obj.getString("id"),
-                            name = obj.getString("name"),
-                            content = obj.getString("content"),
-                            isBuiltIn = obj.optBoolean("isBuiltIn", false)
-                        )
-                    )
-                }
-            }
-            if (parsed.isEmpty()) BuiltInPrompts.DEFAULT_TEMPLATES else parsed
-        } catch (_: Exception) {
-            BuiltInPrompts.DEFAULT_TEMPLATES
-        }
-    }
-
-    private fun serializeTemplates(list: List<PromptTemplate>): String {
-        val arr = JSONArray()
-        list.forEach { t ->
-            arr.put(
-                JSONObject().apply {
-                    put("id", t.id)
-                    put("name", t.name)
-                    put("content", t.content)
-                    put("isBuiltIn", t.isBuiltIn)
-                }
-            )
-        }
-        return arr.toString()
     }
 
     private fun parseElevenLabsKeys(json: String?): List<ElevenLabsKeyEntry> {

@@ -1,6 +1,5 @@
 package com.example.net
 
-import okhttp3.Dispatcher
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -224,44 +223,6 @@ object SharedHttpClients {
     val baseClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .dns(dns)
-            .build()
-    }
-
-    val llmClient: OkHttpClient by lazy {
-        baseClient.newBuilder()
-            .connectTimeout(30L, TimeUnit.SECONDS)
-            .readTimeout(180L, TimeUnit.SECONDS)
-            .writeTimeout(60L, TimeUnit.SECONDS)
-            .callTimeout(300L, TimeUnit.SECONDS)
-            .build()
-    }
-
-    val aiHordeDirectorClient: OkHttpClient by lazy {
-        baseClient.newBuilder()
-            .connectTimeout(20L, TimeUnit.SECONDS)
-            .readTimeout(20L, TimeUnit.SECONDS)
-            .writeTimeout(20L, TimeUnit.SECONDS)
-            .callTimeout(25L, TimeUnit.SECONDS)
-            .build()
-    }
-
-    val sceneArtClient: OkHttpClient by lazy {
-        baseClient.newBuilder()
-            .dispatcher(Dispatcher().apply {
-                maxRequests = 32
-                maxRequestsPerHost = 16
-            })
-            .connectTimeout(15L, TimeUnit.SECONDS)
-            .readTimeout(25L, TimeUnit.SECONDS)
-            .writeTimeout(15L, TimeUnit.SECONDS)
-            .build()
-    }
-
-    val modelDetectorClient: OkHttpClient by lazy {
-        baseClient.newBuilder()
-            .connectTimeout(20L, TimeUnit.SECONDS)
-            .readTimeout(40L, TimeUnit.SECONDS)
-            .writeTimeout(20L, TimeUnit.SECONDS)
             .build()
     }
 

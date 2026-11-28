@@ -1,23 +1,13 @@
 package com.example
 
-import com.example.art.AiHordeImageClient
 import com.example.art.EnvironmentRenderer
 import com.example.art.MagicByteValidator
-import com.example.art.SceneArtGenerator
 import com.example.data.BuiltInPrompts
 import com.example.data.VideoGalleryRepository
-import com.example.llm.AiHordeDirectorClient
-import com.example.llm.ChatPayloadCompatFlags
 import com.example.llm.DirectStoryboardParser
 import com.example.llm.JsonSanitizer
-import com.example.llm.LlmDirectorClient
-import com.example.llm.LlmHttpException
-import com.example.llm.LlmProviderPreset
 import com.example.llm.MalformedSceneJsonException
-import com.example.llm.OpenAiChoiceResult
-import com.example.llm.SceneBatchRange
 import com.example.llm.TagalogNarrationValidator
-import com.example.llm.UniversalModelDetector
 import com.example.net.PublicDohFallbackDns
 import com.example.net.SharedHttpClients
 import com.example.tts.ElevenLabsClient
@@ -28,7 +18,6 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
-import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import com.example.model.ActorAction
 import com.example.model.ActorExpression
@@ -138,12 +127,19 @@ class ToonForgeCoreTest {
         assertTrue(out.contains("oh ef double-u"))
         assertTrue(out.contains("ji-kash"))
         assertTrue(out.contains("badyet"))
+
+        // Pure English / non-Tagalog scripts skip Tagalog-only loanword/number/percent rewrites
+        val englishInput = "In 2025, 50% of our budget goes to focus and salary."
+        val englishOut = TagalogPhoneticNormalizer.normalize(englishInput)
+        assertEquals(englishInput, englishOut)
+        assertFalse(TagalogPhoneticNormalizer.hasTagalogContext(englishInput))
+        assertTrue(TagalogPhoneticNormalizer.hasTagalogContext(input))
     }
 
     @Test
-    fun `tagalogNarrationValidator accepts natural Tagalog and rejects gibberish or literal idioms`() {
+    fun `multilingualNarrationValidator accepts Tagalog English and other languages while cleaning cues`() {
         assertTrue(
-            TagalogNarrationValidator.isValidTagalogNarration(
+            TagalogNarrationValidator.isValidNarration(
                 "Huwag umasa sa iisang kita lang dahil mabilis magbago ang panahon."
             )
         )
@@ -152,31 +148,30 @@ class ToonForgeCoreTest {
                 "Nakakagulat pero ₱1,500 lang ang kailangan para magsimula ang OFW sa pag-iipon!"
             )
         )
-
-        // Rejects literal English idiom slop
-        assertFalse(
-            TagalogNarrationValidator.isValidTagalogNarration(
-                "Huwag mong ilagay ang lahat ng itlog sa isang basket ngayon."
-            )
-        )
-        // Rejects gibberish consonant-smash words
-        assertFalse(
-            TagalogNarrationValidator.isValidTagalogNarration(
-                "Alam mo ba kung bakit xzqprt ang sahod mo?"
-            )
-        )
-        // Rejects non-Latin leakage
-        assertFalse(
-            TagalogNarrationValidator.isValidTagalogNarration(
-                "Alam mo ba kung bakit привет ang sahod mo?"
-            )
-        )
-        // Rejects pure English with zero Tagalog particles
-        assertFalse(
-            TagalogNarrationValidator.isValidTagalogNarration(
+        // Pure English & other languages (Japanese, Cyrillic, Spanish) are now accepted
+        assertTrue(
+            TagalogNarrationValidator.isValidNarration(
                 "Never put every single coin inside one small pocket forever."
             )
         )
+        assertTrue(
+            TagalogNarrationValidator.isValidTagalogNarration(
+                "English narration works cleanly now!"
+            )
+        )
+        assertTrue(
+            TagalogNarrationValidator.isValidNarration(
+                "こんにちは、これはテストのナレーションです。"
+            )
+        )
+        assertTrue(
+            TagalogNarrationValidator.isValidNarration(
+                "Привет мир, это тест!"
+            )
+        )
+        assertFalse(TagalogNarrationValidator.isValidNarration("   "))
+        assertFalse(TagalogNarrationValidator.isValidNarration("As an AI language model, here is a script."))
+
         // Cleans stray stage directions before TTS
         assertEquals(
             "Grabe talaga ang pagtitipid ng batang ito!",
@@ -198,17 +193,10 @@ class ToonForgeCoreTest {
     }
 
     @Test
-    fun `twoLayerPromptComposition enforces natural Tagalog and locks json schema`() {
-        val customPrompt = "Custom Pinoy comedy tone with punchy jokes."
-        val composed = BuiltInPrompts.composeSystemPrompt(customPrompt, 30, AnimationStyle.PAPER_DIORAMA)
-        assertTrue(composed.startsWith(customPrompt))
-        assertTrue(composed.contains("MANDATORY TECHNICAL JSON FORMAT (DO NOT OVERRIDE)"))
-        assertTrue(composed.contains("STRICT NATURAL TAGALOG LANGUAGE RULES"))
-        assertTrue(composed.contains("\"shot_framing\""))
-        assertTrue(composed.contains("\"tagalog_narration\""))
-        assertTrue(composed.contains("\"world_fx\""))
-        assertTrue(composed.contains("\"status_pill\""))
-        assertTrue(composed.contains("\"hud_widget\""))
+    fun `builtInVoicePresetsAndPronunciationDictionaryRemainIntact`() {
+        assertTrue(BuiltInPrompts.VOICE_PRESETS.isNotEmpty())
+        assertEquals(ElevenLabsClient.DEFAULT_VOICE_ID, BuiltInPrompts.VOICE_PRESETS.first().id)
+        assertTrue(BuiltInPrompts.DEFAULT_PRONUNCIATION_DICTIONARY.any { it.original == "GCash" })
     }
 
     @Test
@@ -264,12 +252,6 @@ class ToonForgeCoreTest {
         )
         assertEquals(ShotFraming.MEDIUM_WAIST_UP, ProceduralPuppetEngine.resolveShotFraming(scene))
         assertEquals(ShotFraming.CLOSE_UP_FACE, ProceduralPuppetEngine.resolveShotFraming(scene.copy(sceneId = 4)))
-
-        val techComposed = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.TECH_EXPLAINER)
-        assertTrue(techComposed.contains("IMPORTANT FOR Viral HUD & Motion Explainer"))
-        val cutawayComposed = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.CROSS_SECTION)
-        assertTrue(cutawayComposed.contains("IMPORTANT FOR 2D Cutaway & System Explainer"))
-        assertTrue(cutawayComposed.contains("CLOSE_UP_FACE"))
     }
 
     @Test
@@ -431,11 +413,6 @@ class ToonForgeCoreTest {
         assertEquals(ShotType.WHIP_CUT, ShotType.fromRaw("WHIP_CUT"))
         assertEquals(ShotType.AUTO, ShotType.fromRaw("invalid"))
 
-        val schemaPrompt = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.PAPER_DIORAMA)
-        assertTrue(schemaPrompt.contains("\"character_pose\""))
-        assertTrue(schemaPrompt.contains("\"hand_prop\""))
-        assertTrue(schemaPrompt.contains("\"shot_type\""))
-
         val scene = SceneScript(
             sceneId = 1,
             tagalogNarration = "Lakad lang nang lakad habang may hawak na ilaw ng ideya!",
@@ -581,13 +558,6 @@ class ToonForgeCoreTest {
             ActorExpression.HAPPY_TALK,
             ProceduralPuppetEngine.resolveExpression(defaultScene, AnimationStyle.PAPER_DIORAMA)
         )
-
-        val viralPrompt = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.VIRAL_2D_EXPLAINER)
-        assertTrue(viralPrompt.contains("\"expression\""))
-        assertTrue(viralPrompt.contains("\"headgear\""))
-        assertTrue(viralPrompt.contains("\"metaphor_visual\""))
-        assertTrue(viralPrompt.contains("\"topic_pill\""))
-        assertTrue(viralPrompt.contains("CHOMP_CHAIN"))
     }
 
     @Test
@@ -617,87 +587,6 @@ class ToonForgeCoreTest {
         assertTrue(repaired.contains("\"checklist_items\": [\"Magtabi agad\", \"Iwasan ang utang\"]"))
         assertFalse(repaired.contains("\"scene_id\": 2"))
         assertFalse(repaired.contains("Heto ang pangalawang"))
-    }
-
-    @Test
-    fun `universalModelDetector infers providers builds probes and ranks models`() {
-        // Presets exclude AI Horde text fallback and include DeepSeek first
-        assertEquals(
-            listOf("DEEPSEEK", "GEMINI", "GROQ", "OPENROUTER", "CUSTOM"),
-            LlmProviderPreset.entries.map { it.name }
-        )
-        assertEquals("https://api.deepseek.com", LlmProviderPreset.DEEPSEEK.baseUrl)
-
-        // Key-prefix provider auto-fill
-        assertEquals(
-            "https://generativelanguage.googleapis.com/v1beta/openai",
-            UniversalModelDetector.inferBaseUrlFromApiKey("AIzaSyDummyTestKey123")
-        )
-        assertEquals(
-            "https://api.groq.com/openai/v1",
-            UniversalModelDetector.inferBaseUrlFromApiKey("gsk_dummy_test")
-        )
-        assertEquals(
-            "https://openrouter.ai/api/v1",
-            UniversalModelDetector.inferBaseUrlFromApiKey("sk-or-v1-dummy")
-        )
-        assertEquals(null, UniversalModelDetector.inferBaseUrlFromApiKey("0000000000"))
-
-        // Endpoint path discovery order
-        assertEquals(
-            listOf(
-                "https://proxy.example.com/models",
-                "https://proxy.example.com/v1/models",
-                "https://proxy.example.com/openai/v1/models"
-            ),
-            UniversalModelDetector.buildCandidateModelUrls("https://proxy.example.com///")
-        )
-        assertEquals(
-            listOf(
-                "https://api.groq.com/openai/v1/models"
-            ),
-            UniversalModelDetector.buildCandidateModelUrls("https://api.groq.com/openai/v1")
-        )
-        assertEquals(
-            listOf(
-                "https://generativelanguage.googleapis.com/v1beta/openai/models"
-            ),
-            UniversalModelDetector.buildCandidateModelUrls("https://generativelanguage.googleapis.com/v1beta/openai")
-        )
-
-        // Resolved chat completions URLs
-        assertEquals(
-            "https://proxy.example.com/v1",
-            UniversalModelDetector.resolveChatBaseUrlFromModelsUrl("https://proxy.example.com/v1/models")
-        )
-        assertEquals(
-            "https://proxy.example.com/v1/chat/completions",
-            UniversalModelDetector.buildCandidateChatUrls(
-                baseUrl = "https://proxy.example.com",
-                detectedChatBaseUrl = "https://proxy.example.com/v1"
-            ).first()
-        )
-        assertEquals(
-            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            UniversalModelDetector.buildCandidateChatUrls(
-                baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai"
-            ).first()
-        )
-
-        // Filtering & ranking
-        val rankedChatOnly = UniversalModelDetector.filterAndRankModels(
-            listOf("whisper-1", "text-embedding-3-small", "dall-e-3", "zeta-chat", "qwen-2.5", "gemini-2.5-flash", "alpha-llm"),
-            showAllRaw = false
-        )
-        assertEquals(listOf("gemini-2.5-flash", "qwen-2.5", "alpha-llm", "zeta-chat"), rankedChatOnly.map { it.id })
-        assertTrue(rankedChatOnly[0].isRecommended)
-        assertFalse(rankedChatOnly[2].isRecommended)
-
-        val rawAll = UniversalModelDetector.filterAndRankModels(
-            listOf("whisper-1", "gemini-2.5-flash"),
-            showAllRaw = true
-        )
-        assertEquals(2, rawAll.size)
     }
 
     @Test
@@ -762,13 +651,6 @@ class ToonForgeCoreTest {
             "WHITE BLOOD CELLS",
             ProceduralPuppetEngine.resolvePointerCallouts(inferredImmuneScene).first().label
         )
-
-        val prompt = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.PIXEL_CUTAWAY_EXPLAINER)
-        assertTrue(prompt.contains("\"cutaway_stage\""))
-        assertTrue(prompt.contains("\"cutaway_subject\""))
-        assertTrue(prompt.contains("\"pointer_callouts\""))
-        assertTrue(prompt.contains("STRAND_AND_VESSEL_REBUILD"))
-        assertTrue(prompt.contains("SURFACE_HEALED_ZOOM_OUT"))
     }
 
     @Test
@@ -807,11 +689,6 @@ class ToonForgeCoreTest {
                 style = AnimationStyle.PAPER_DIORAMA
             )
         )
-        assertEquals(25_000L, AiHordeImageClient.POLL_TIMEOUT_MS)
-        assertEquals(20L, AiHordeImageClient.POLLINATIONS_TIMEOUT_SEC)
-        val pollUrl = AiHordeImageClient.buildPollinationsUrl("sunny pinoy kitchen")
-        assertTrue(pollUrl.startsWith("https://image.pollinations.ai/prompt/"))
-        assertTrue(pollUrl.contains("width=540&height=960&model=flux&nologo=true"))
 
         // 2. Removed obsolete floating sky FX safely map to NONE + new hand props work
         assertEquals(4, WorldFx.entries.size)
@@ -920,86 +797,11 @@ class ToonForgeCoreTest {
         assertTrue(extracted.contains("\"character_gender\": \"FEMALE\""))
         assertTrue(extracted.contains("\"outfit_color_hex\": \"#E11D48\""))
         assertTrue(extracted.contains("\"hand_prop\": \"COFFEE_CUP\""))
-
-        val v5Prompt = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.VIRAL_2D_EXPLAINER)
-        assertTrue(v5Prompt.contains("\"environment_theme\""))
-        assertTrue(v5Prompt.contains("\"character_gender\""))
-        assertTrue(v5Prompt.contains("\"character_age\""))
-        assertTrue(v5Prompt.contains("\"outfit_color_hex\""))
-        assertTrue(v5Prompt.contains("COFFEE_CUP"))
-        assertTrue(v5Prompt.contains("BASKET_GOODS"))
-        assertTrue(v5Prompt.contains("CRACKING_EGG_CHICK"))
-        assertFalse(v5Prompt.contains("FLOATING_HOUSES"))
-        assertFalse(v5Prompt.contains("GIANT_HAND_GRAB"))
     }
 
     @Test
-    fun `exactTargetDurationLockSystemCalculatesBudgetGuardsLengthAlignsPausesAndClampsSpeed`() {
-        // 1. Strict Spoken-Character & Scene Count Formula
-        val budget30 = LlmDirectorClient.calculateDurationBudget(30)
-        assertEquals(6, budget30.targetSceneCount) // (30 / 4.8).roundToInt() = 6
-        assertEquals(423, budget30.targetSpokenChars) // ((30 - 6*0.45) * 15.5).roundToInt() = 423
-        assertEquals(381, budget30.minChars)
-        assertEquals(457, budget30.maxChars)
-
-        val budget60 = LlmDirectorClient.calculateDurationBudget(60)
-        assertEquals(13, budget60.targetSceneCount) // (60 / 4.8).roundToInt() = 13
-        assertEquals(839, budget60.targetSpokenChars) // ((60 - 13*0.45) * 15.5).roundToInt() = 839
-
-        val contract = LlmDirectorClient.buildDurationContractBlock(budget30)
-        assertTrue(contract.contains("MANDATORY DURATION & LENGTH CONTRACT"))
-        assertTrue(contract.contains("EXACTLY 6 scenes"))
-        assertTrue(contract.contains("381 and 457"))
-
-        // 2. Pre-TTS expansion merge & overshoot trimming guard (preserving closing scene)
-        val shortScenes = (1..3).map { idx ->
-            SceneScript(
-                sceneId = idx,
-                tagalogNarration = "Maikling eksena $idx tungkol sa ipon.",
-                backgroundPrompt = "bright office",
-                cameraMotion = CameraMotion.STATIC,
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE
-            )
-        }
-        val extraScenes = (1..3).map { idx ->
-            SceneScript(
-                sceneId = idx,
-                tagalogNarration = "Mas detalyadong paliwanag $idx kung paano nakakatulong ang pagtitipid araw-araw.",
-                backgroundPrompt = "sunny market",
-                cameraMotion = CameraMotion.ZOOM_IN,
-                actorRole = ActorRole.CHICKEN_MENTOR,
-                actorAction = ActorAction.POINT_STICK,
-                worldFx = WorldFx.COIN_RAIN
-            )
-        }
-        val merged = LlmDirectorClient.mergeExpandedScenes(shortScenes, extraScenes, budget30)
-        assertEquals(6, merged.size)
-        assertEquals(listOf(1, 2, 3, 4, 5, 6), merged.map { it.sceneId })
-
-        val oversizedScenes = (1..10).map { idx ->
-            SceneScript(
-                sceneId = idx,
-                tagalogNarration = if (idx == 10) {
-                    "Kaya simula ngayon, magtabi agad ng bente porsyento bago gumastos."
-                } else {
-                    "Napakahabang paliwanag bilang $idx tungkol sa maling diskarte sa pera at gastos ng marami sa atin ngayon."
-                },
-                backgroundPrompt = "office",
-                cameraMotion = CameraMotion.STATIC,
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE
-            )
-        }
-        val trimmed = LlmDirectorClient.trimExcessScenesPreservingEnding(oversizedScenes, budget30)
-        assertTrue(trimmed.size < oversizedScenes.size)
-        assertTrue(LlmDirectorClient.totalSpokenChars(trimmed) <= (budget30.maxChars * 1.15).toInt())
-        assertEquals(oversizedScenes.last().tagalogNarration, trimmed.last().tagalogNarration)
-        assertEquals((1..trimmed.size).toList(), trimmed.map { it.sceneId })
-
-        // 3. Smart Inter-Scene Breathing Pauses (350..850ms) & <= 1200ms Outro Hold
+    fun `breathingPausesAlignmentAndNarrationSpeedClampWork`() {
+        // Smart Inter-Scene Breathing Pauses (350..850ms) & <= 1200ms Outro Hold
         val plan = AudioPcmStitcher.computeBreathingPauses(
             sceneCount = 6,
             totalSpeechMs = 26_600.0,
@@ -1113,18 +915,6 @@ class ToonForgeCoreTest {
             DynamicDiagramRenderer.resolveDiagramType(meterScene, AnimationStyle.VIRAL_2D_EXPLAINER)
         )
         assertFalse(DynamicDiagramRenderer.isDiagramAlongsideCharacter(DynamicDiagramType.SUNBURST_HERO_CALLOUT))
-
-        // 4. BuiltInPrompts Topic-First Decoupling & V6 JSON schema verification
-        val v6Prompt = BuiltInPrompts.composeSystemPrompt("Base", 30, AnimationStyle.PIXEL_CUTAWAY_EXPLAINER)
-        assertTrue(v6Prompt.contains("TOPIC-FIRST DECOUPLING CONTRACT"))
-        assertTrue(v6Prompt.contains("\"character_outfit\""))
-        assertTrue(v6Prompt.contains("\"hair_color_hex\""))
-        assertTrue(v6Prompt.contains("\"cutaway_diagram_prompt\""))
-        assertTrue(v6Prompt.contains("\"flow_direction\""))
-        assertTrue(v6Prompt.contains("\"diagram_type\""))
-        assertTrue(v6Prompt.contains("\"left_label\""))
-        assertTrue(v6Prompt.contains("\"step_1\""))
-        assertTrue(v6Prompt.contains("HOSPITAL_CLINIC"))
     }
 
     @Test
@@ -1137,37 +927,13 @@ class ToonForgeCoreTest {
         assertEquals(1.0f, defaults.narrationSpeed, 0.001f)
 
         val dirtySettings = StudioSettings(
-            llmBaseUrl = "  https://api.deepseek.com \n",
-            llmApiKey = "\r sk-test-123 \n",
-            selectedModelId = " deepseek-chat \n",
             ttsBaseUrl = " https://api.elevenlabs.io \n",
             ttsModelId = " eleven_flash_v2_5 \n",
             selectedVoiceId = " N2IVS1w4EtoT3dr4eOWO \n"
         )
-        assertEquals("https://api.deepseek.com", dirtySettings.effectiveLlmBaseUrl)
-        assertEquals("sk-test-123", dirtySettings.effectiveLlmApiKey)
-        assertEquals("deepseek-chat", dirtySettings.effectiveSelectedModelId)
         assertEquals("https://api.elevenlabs.io", dirtySettings.effectiveTtsBaseUrl)
         assertEquals("eleven_flash_v2_5", dirtySettings.effectiveTtsModelId)
         assertEquals("N2IVS1w4EtoT3dr4eOWO", dirtySettings.effectiveVoiceId)
-
-        // 2. LLM timeouts & max_tokens + exact HTTP error formatting
-        assertEquals(30L, LlmDirectorClient.CONNECT_TIMEOUT_SEC)
-        assertEquals(180L, LlmDirectorClient.READ_TIMEOUT_SEC)
-        assertEquals(60L, LlmDirectorClient.WRITE_TIMEOUT_SEC)
-        assertEquals(300L, LlmDirectorClient.CALL_TIMEOUT_SEC)
-        assertEquals(4096, LlmDirectorClient.MAX_TOKENS)
-
-        val llmErr = LlmHttpException(
-            statusCode = 401,
-            endpointUrl = "https://api.deepseek.com/chat/completions",
-            modelId = "deepseek-chat",
-            rawBody = "{\"error\":\"Invalid API key\"}"
-        )
-        assertTrue(llmErr.message.orEmpty().contains("401"))
-        assertTrue(llmErr.message.orEmpty().contains("https://api.deepseek.com/chat/completions"))
-        assertTrue(llmErr.message.orEmpty().contains("deepseek-chat"))
-        assertTrue(llmErr.message.orEmpty().contains("Invalid API key"))
 
         // 3. ElevenLabs 422 model detection, payload model_id, proportional timings & error formatting
         assertEquals("N2IVS1w4EtoT3dr4eOWO", ElevenLabsClient.DEFAULT_VOICE_ID)
@@ -1209,119 +975,8 @@ class ToonForgeCoreTest {
     }
 
     @Test
-    fun `zeroShortcutAntiLazinessQualityGateWorksAcrossScriptArtPuppetCameraAndTts`() {
-        // 1. Direct JSON Batch Director Prompts & Spoken-Char 94% Gate
-        val budget30 = LlmDirectorClient.calculateDurationBudget(30)
-        assertEquals(6, budget30.targetSceneCount)
-        assertEquals(398, LlmDirectorClient.requiredMinSpokenChars(budget30)) // (423 * 0.94).roundToInt() = 398
-        assertEquals(2, LlmDirectorClient.MAX_REPAIR_PASSES)
-
-        val prodPrompt = LlmDirectorClient.buildSceneProductionPrompt(
-            topic = "Paano mag-ipon ng ₱1,000 gamit ang 50-30-20 rule",
-            durationSeconds = 30,
-            style = AnimationStyle.PAPER_DIORAMA,
-            budget = budget30
-        )
-        assertTrue(prodPrompt.contains("GRANULAR JSON SCENE PRODUCTION RULES"))
-        assertTrue(prodPrompt.contains("ZERO shortcuts"))
-        assertTrue(prodPrompt.contains("json"))
-
-        // 2. Kotlin Anti-Laziness Validator rejects short narration, vague visual fillers, missing dimensions & consecutive repeats
-        val goodVisual = "Young Filipino worker leaning forward at wooden market counter while smiling with bright eyes, holding a steaming coffee cup in warm golden morning sunlight."
-        val lazyScenes = listOf(
-            SceneScript(
-                sceneId = 1,
-                tagalogNarration = "Maikli ito.", // < 11 words and < 60 chars
-                backgroundPrompt = "generic simple background etc",
-                visualDescription = "A person in a generic simple background with coffee, etc.",
-                cameraMotion = CameraMotion.ZOOM_IN,
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE,
-                characterPose = CharacterPose.POINT_AND_GESTURE,
-                shotFraming = ShotFraming.MEDIUM_WAIST_UP
-            ),
-            SceneScript(
-                sceneId = 2,
-                tagalogNarration = "Alam mo ba kung bakit nauubos agad ang sahod mo tuwing kinsenas ng buwan?",
-                backgroundPrompt = goodVisual,
-                visualDescription = goodVisual,
-                cameraMotion = CameraMotion.ZOOM_IN, // repeats Scene 1
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE,
-                characterPose = CharacterPose.POINT_AND_GESTURE, // repeats Scene 1
-                shotFraming = ShotFraming.MEDIUM_WAIST_UP // repeats Scene 1
-            )
-        )
-        val badReport = LlmDirectorClient.validateSceneQuality(lazyScenes, budget30)
-        assertFalse(badReport.isValid)
-        assertEquals(listOf(3, 4, 5, 6), badReport.missingSceneIds)
-        val s1Reasons = badReport.sceneIssues.first { it.sceneId == 1 }.reasons.joinToString(" | ")
-        assertTrue(s1Reasons.contains("words (minimum 11)"))
-        assertTrue(s1Reasons.contains("chars (minimum 60)"))
-        assertTrue(s1Reasons.contains("vague filler"))
-        val s2Reasons = badReport.sceneIssues.first { it.sceneId == 2 }.reasons.joinToString(" | ")
-        assertTrue(s2Reasons.contains("camera_motion"))
-        assertTrue(s2Reasons.contains("character_pose"))
-        assertTrue(s2Reasons.contains("shot_framing"))
-
-        // 3. Targeted repair prompt & mergeRepairedScenes produces a valid 6-scene script >= 94% target chars
-        val repairPrompt = LlmDirectorClient.buildTargetedRepairPrompt(
-            workingScenes = lazyScenes,
-            targetSceneIds = listOf(1, 2, 3, 4, 5, 6),
-            report = badReport,
-            budget = budget30
-        )
-        assertTrue(repairPrompt.contains("TARGETED SCENE QUALITY REPAIR PASS"))
-        assertTrue(repairPrompt.contains("Scene 1 failure reason(s)"))
-
-        val cameras = listOf(
-            CameraMotion.ZOOM_IN,
-            CameraMotion.PAN_LEFT,
-            CameraMotion.ZOOM_OUT,
-            CameraMotion.PAN_RIGHT,
-            CameraMotion.TRACKING_FOLLOW,
-            CameraMotion.IMPACT_SHAKE
-        )
-        val poses = listOf(
-            CharacterPose.THREE_QUARTER_EXPLAIN,
-            CharacterPose.WALK_ACROSS_LEFT_TO_RIGHT,
-            CharacterPose.SIT_SLUMPED,
-            CharacterPose.POINT_AND_GESTURE,
-            CharacterPose.SHOCK_AIRBORNE_RECOIL,
-            CharacterPose.CELEBRATE_JUMP
-        )
-        val framings = listOf(
-            ShotFraming.CLOSE_UP_FACE,
-            ShotFraming.WIDE_FULL_BODY,
-            ShotFraming.MEDIUM_WAIST_UP,
-            ShotFraming.RULE_OF_THIRDS_LEFT,
-            ShotFraming.RULE_OF_THIRDS_RIGHT,
-            ShotFraming.CLOSE_UP_FACE
-        )
-        val repairedAll = (1..6).map { idx ->
-            SceneScript(
-                sceneId = idx,
-                tagalogNarration = "Alam mo ba kung paano nakakaipon ng isang libong piso linggo-linggo ang masipag na tindera?",
-                backgroundPrompt = goodVisual,
-                visualDescription = goodVisual,
-                cameraMotion = cameras[idx - 1],
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE,
-                characterPose = poses[idx - 1],
-                shotFraming = framings[idx - 1]
-            )
-        }
-        val merged = LlmDirectorClient.mergeRepairedScenes(lazyScenes, repairedAll, budget30.targetSceneCount)
-        val cleanReport = LlmDirectorClient.validateSceneQuality(merged, budget30)
-        assertTrue("Expected repaired script to pass quality gate, got: ${cleanReport.summaryMessage()}", cleanReport.isValid)
-
-        // 4. Verified Multi-Retry Art Pipeline constants & validators
-        assertEquals(2, SceneArtGenerator.MAX_CONCURRENT_JOBS)
-        assertEquals(3, AiHordeImageClient.PRIMARY_MAX_RETRIES)
-        assertEquals(listOf(700L, 1600L), AiHordeImageClient.PRIMARY_BACKOFF_MS.toList())
+    fun `magicBytesPuppetMicroActingCameraControllerAndTtsGuardsWork`() {
+        // 1. Magic byte validators
         assertEquals(15_360, MagicByteValidator.MIN_VERIFIED_IMAGE_BYTES)
         assertEquals(480, MagicByteValidator.MIN_VERIFIED_WIDTH_PX)
         assertEquals(800, MagicByteValidator.MIN_VERIFIED_HEIGHT_PX)
@@ -1331,7 +986,7 @@ class ToonForgeCoreTest {
         assertFalse(MagicByteValidator.meetsMinimumDimensions(540, 600))
         assertTrue(MagicByteValidator.meetsMinimumDimensions(540, 960))
 
-        // 5. Continuous Micro-Acting, Phoneme MouthShape & Non-Static CameraController
+        // 2. Continuous Micro-Acting, Phoneme MouthShape & Non-Static CameraController
         assertEquals(0.35f, ProceduralPuppetEngine.BREATHING_FREQ_HZ, 0.001f)
         assertEquals(2.6f, ProceduralPuppetEngine.EYE_BLINK_PERIOD_SEC, 0.001f)
         assertEquals(MouthShape.CLOSED_M, ProceduralPuppetEngine.resolveMouthShape(false, "alam", 0.5f, 0.9f))
@@ -1340,8 +995,16 @@ class ToonForgeCoreTest {
         assertEquals(MouthShape.ROUND_O, ProceduralPuppetEngine.resolveMouthShape(true, "bobo", 0.3f, 0.8f))
         assertEquals(MouthShape.SMILE_TEETH, ProceduralPuppetEngine.resolveMouthShape(true, "bibi", 0.3f, 0.8f))
 
-        val staticScene = repairedAll.first().copy(
+        val staticScene = SceneScript(
+            sceneId = 1,
+            tagalogNarration = "Alam mo ba kung paano nakakaipon ng isang libong piso linggo-linggo ang masipag na tindera?",
+            backgroundPrompt = "sunny morning street",
+            visualDescription = "Young Filipino worker leaning forward at wooden market counter",
             cameraMotion = CameraMotion.STATIC,
+            actorRole = ActorRole.HERO,
+            actorAction = ActorAction.TALK_BOUNCE,
+            worldFx = WorldFx.NONE,
+            characterPose = CharacterPose.THREE_QUARTER_EXPLAIN,
             shotType = ShotType.WIDE_STAGE,
             shotFraming = ShotFraming.WIDE_FULL_BODY
         )
@@ -1437,12 +1100,12 @@ class ToonForgeCoreTest {
         assertTrue(unwrappedStoryboard.contains("\"scene_id\": 1"))
         assertFalse(unwrappedStoryboard.contains("\"scene_id\": 2"))
 
-        // 3. Rejects responses containing only string arrays or no scene objects and includes raw snippet
+        // 3. Rejects responses containing only string arrays or no scene objects and includes input snippet
         var stringArrayRejected = false
         try {
             JsonSanitizer.extractJsonArrayText("[Scene 1] Only tags [\"tag1\", \"tag2\"] here.")
         } catch (e: MalformedSceneJsonException) {
-            stringArrayRejected = e.message.orEmpty().contains("Raw LLM output:")
+            stringArrayRejected = e.message.orEmpty().contains("Input snippet:")
         }
         assertTrue(stringArrayRejected)
 
@@ -1453,167 +1116,9 @@ class ToonForgeCoreTest {
         } catch (e: MalformedSceneJsonException) {
             capturedMsg = e.message.orEmpty()
         }
-        assertTrue(capturedMsg.startsWith("No JSON array brackets found. Raw LLM output: "))
+        assertTrue(capturedMsg.startsWith("No JSON array brackets found. Input snippet: "))
         assertTrue(capturedMsg.contains("Pasensya na, ito ay isang kuwentong walang brackets!"))
-        assertTrue(capturedMsg.length <= "No JSON array brackets found. Raw LLM output: ".length + 220)
-
-        // 4. Direct JSON mode ("json" in prompt, {"scenes": [...]} footer at VERY END, zero Pass 1 plain-text outline)
-        val customMasterPrompt = "Custom Master Prompt with creative instructions."
-        val budget30 = LlmDirectorClient.calculateDurationBudget(30)
-        val expectedFooter = "CRITICAL OUTPUT FORMAT: Return ONLY a raw JSON object {\"scenes\": [ ... ]} with zero markdown fences or commentary."
-        assertEquals(expectedFooter, LlmDirectorClient.STRICT_JSON_OUTPUT_FOOTER)
-
-        val composedSys = BuiltInPrompts.composeSystemPrompt(customMasterPrompt, 30, AnimationStyle.PAPER_DIORAMA)
-        assertTrue(composedSys.contains("{\"scenes\": [ ... ]}"))
-        assertFalse(composedSys.contains("[\"ZOOM_IN\""))
-        assertFalse(composedSys.contains("[A]"))
-        assertFalse(composedSys.contains("[B]"))
-
-        val directorSys = LlmDirectorClient.buildDirectorSystemPrompt(composedSys, retryHint = "Retry now.")
-        assertTrue(directorSys.contains("json"))
-        assertTrue(directorSys.endsWith(expectedFooter))
-
-        val directUser = LlmDirectorClient.buildSceneProductionPrompt("Ipon", 30, AnimationStyle.PAPER_DIORAMA, budget30)
-        assertTrue(directUser.contains("json"))
-        assertTrue(directUser.endsWith(expectedFooter))
-
-        val repairUser = LlmDirectorClient.buildTargetedRepairPrompt(
-            workingScenes = emptyList(),
-            targetSceneIds = listOf(1),
-            report = LlmDirectorClient.validateSceneQuality(emptyList(), budget30),
-            budget = budget30
-        )
-        assertTrue(repairUser.contains("json"))
-        assertTrue(repairUser.endsWith(expectedFooter))
-
-        // 5. Thinking-disabled HTTP 400/422 compatibility stripping, temp 0.6, and 4-scene sequential batching
-        assertTrue(LlmDirectorClient.isUnsupportedResponseFormatError(400, "{\"error\":\"Unsupported parameter: response_format\"}"))
-        assertTrue(LlmDirectorClient.isUnsupportedResponseFormatError(422, "json_object mode not supported by this model"))
-        assertFalse(LlmDirectorClient.isUnsupportedResponseFormatError(401, "Invalid response_format"))
-
-        assertTrue(LlmDirectorClient.isUnsupportedThinkingFieldError(400, "{\"error\":\"Unknown parameter: 'thinking'\"}"))
-        assertTrue(LlmDirectorClient.isUnsupportedThinkingFieldError(422, "Extra inputs: thinking"))
-        assertFalse(LlmDirectorClient.isUnsupportedThinkingFieldError(400, "{\"error\":\"Unknown parameter: 'enable_thinking'\"}"))
-
-        assertTrue(LlmDirectorClient.isUnsupportedEnableThinkingError(400, "{\"error\":\"Unknown parameter: 'enable_thinking'\"}"))
-        assertTrue(LlmDirectorClient.isUnsupportedEnableThinkingError(422, "enable_thinking is not allowed"))
-
-        val defaultFlags = ChatPayloadCompatFlags()
-        assertFalse(defaultFlags.includeThinking)
-        assertFalse(defaultFlags.includeEnableThinking)
-        assertTrue(defaultFlags.includeResponseFormat)
-        assertTrue(defaultFlags.includeStream)
-
-        val defaultPayloadJson = LlmDirectorClient.buildChatCompletionPayloadJson(
-            model = "deepseek-chat",
-            systemPrompt = "sys",
-            userPrompt = "usr",
-            compatFlags = defaultFlags
-        )
-        assertFalse(defaultPayloadJson.contains("\"thinking\""))
-        assertFalse(defaultPayloadJson.contains("\"enable_thinking\""))
-        assertTrue(defaultPayloadJson.contains("\"stream\":true"))
-        assertTrue(defaultPayloadJson.contains("\"temperature\":0.6"))
-        assertTrue(defaultPayloadJson.contains("\"max_tokens\":4096"))
-
-        val startFlags = ChatPayloadCompatFlags(includeThinking = true, includeEnableThinking = true)
-        val afterThinking400 = LlmDirectorClient.nextCompatFlagsOnHttpError(
-            startFlags,
-            400,
-            "{\"error\":\"Unknown parameter: 'thinking'\"}"
-        )!!
-        assertFalse(afterThinking400.includeThinking)
-        assertTrue(afterThinking400.includeEnableThinking)
-        assertTrue(afterThinking400.includeResponseFormat)
-
-        val afterEnableThinking422 = LlmDirectorClient.nextCompatFlagsOnHttpError(
-            afterThinking400,
-            422,
-            "{\"detail\":\"Extra inputs are not permitted: enable_thinking\"}"
-        )!!
-        assertFalse(afterEnableThinking422.includeThinking)
-        assertFalse(afterEnableThinking422.includeEnableThinking)
-        assertTrue(afterEnableThinking422.includeResponseFormat)
-
-        val afterFormat400 = LlmDirectorClient.nextCompatFlagsOnHttpError(
-            afterEnableThinking422,
-            400,
-            "response_format json_object not supported"
-        )!!
-        assertFalse(afterFormat400.includeThinking)
-        assertFalse(afterFormat400.includeEnableThinking)
-        assertFalse(afterFormat400.includeResponseFormat)
-        assertTrue(afterFormat400.includeStream)
-
-        assertTrue(LlmDirectorClient.isUnsupportedStreamFieldError(400, "{\"error\":\"Unknown parameter: 'stream'\"}"))
-        assertTrue(LlmDirectorClient.isUnsupportedStreamFieldError(422, "streaming is not supported by this proxy"))
-        assertFalse(LlmDirectorClient.isUnsupportedStreamFieldError(401, "stream unsupported"))
-        val afterStream400 = LlmDirectorClient.nextCompatFlagsOnHttpError(
-            afterFormat400,
-            400,
-            "{\"error\":\"Unsupported parameter: 'stream'\"}"
-        )!!
-        assertFalse(afterStream400.includeStream)
-        assertEquals(null, LlmDirectorClient.nextCompatFlagsOnHttpError(startFlags, 401, "Unauthorized"))
-
-        assertEquals(0.6, LlmDirectorClient.DEFAULT_TEMPERATURE, 0.001)
-        assertEquals(4, LlmDirectorClient.MAX_SCENES_PER_BATCH)
-        assertEquals(2, LlmDirectorClient.FALLBACK_SCENES_PER_BATCH)
-        assertEquals("[{\"scene_id\":1}]", LlmDirectorClient.stripThinkingBlocks("<think>internal</think>\n[{\"scene_id\":1}]"))
-        assertTrue(LlmDirectorClient.hasJsonArrayBrackets("{\"scenes\": [{\"scene_id\": 1}]}"))
-        assertFalse(LlmDirectorClient.hasJsonArrayBrackets("Plain planning notes without array brackets"))
-
-        // Batching for 30s-120s videos: max 4 scenes per request
-        val batches6 = LlmDirectorClient.computeSceneBatches(6)
-        assertEquals(listOf(SceneBatchRange(1, 4), SceneBatchRange(5, 6)), batches6)
-        val batches12 = LlmDirectorClient.computeSceneBatches(12)
-        assertEquals(listOf(SceneBatchRange(1, 4), SceneBatchRange(5, 8), SceneBatchRange(9, 12)), batches12)
-        val batches20 = LlmDirectorClient.computeSceneBatches(20)
-        assertEquals(5, batches20.size)
-        assertTrue(batches20.all { it.count == 4 })
-
-        // Smaller sub-batch splitting (max 2 scenes) on fallback retry
-        assertEquals(
-            listOf(SceneBatchRange(5, 6), SceneBatchRange(7, 8)),
-            LlmDirectorClient.splitBatchRange(SceneBatchRange(5, 8))
-        )
-
-        // Batch scene ID alignment when LLM re-numbers batch 5..8 starting from 1
-        val renumberedBatch = (1..4).map { idx ->
-            SceneScript(
-                sceneId = idx,
-                tagalogNarration = "Bahagi $idx ng kuwento tungkol sa tamang pag-iipon ng pera sa araw-araw.",
-                visualDescription = "Filipino worker smiling holding a blue ledger beside a wooden desk inside a sunny room.",
-                backgroundPrompt = "sunny room",
-                cameraMotion = CameraMotion.PAN_RIGHT,
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE
-            )
-        }
-        val aligned = LlmDirectorClient.alignBatchSceneIds(renumberedBatch, SceneBatchRange(5, 8))
-        assertEquals(listOf(5, 6, 7, 8), aligned.map { it.sceneId })
-
-        // 2-sentence continuity summary for subsequent batch
-        val continuity = LlmDirectorClient.summarizeBatchContinuity(aligned)
-        assertTrue(continuity.contains("Scenes 5-8"))
-        assertTrue(continuity.contains("PAN_RIGHT"))
-        assertEquals(2, continuity.count { it == '.' })
-
-        // Batch prompt includes continuity summary, "json", and ends with STRICT_JSON_OUTPUT_FOOTER
-        val budget90 = LlmDirectorClient.calculateDurationBudget(90)
-        val batchPromptJson = LlmDirectorClient.buildBatchSceneProductionPrompt(
-            topic = "Emergency Fund",
-            durationSeconds = 90,
-            style = AnimationStyle.FLAT_VECTOR,
-            budget = budget90,
-            batchRange = SceneBatchRange(5, 8),
-            previousBatchSummary = continuity
-        )
-        assertTrue(batchPromptJson.contains("Scenes 5..8"))
-        assertTrue(batchPromptJson.contains(continuity))
-        assertTrue(batchPromptJson.contains("json"))
-        assertTrue(batchPromptJson.endsWith(LlmDirectorClient.STRICT_JSON_OUTPUT_FOOTER))
+        assertTrue(capturedMsg.length <= "No JSON array brackets found. Input snippet: ".length + 220)
 
         // JsonSanitizer strips <think>...</think> + markdown fences and parses bare top-level array containing tagalog_narration
         val thinkAndBareArray = """
@@ -1630,96 +1135,9 @@ class ToonForgeCoreTest {
     }
 
     @Test
-    fun `aiHordeModeSwitchAndAsyncDirectorContracts`() {
-        // 1. StudioSettings defaults & anonymous AI Horde key fallback
-        val defaultSettings = StudioSettings()
-        assertFalse(defaultSettings.useAiHorde)
-        assertEquals("0000000000", defaultSettings.aiHordeApiKey)
-
-        val blankKeySettings = StudioSettings(useAiHorde = true, aiHordeKey = "  \n  ")
-        assertTrue(blankKeySettings.useAiHorde)
-        assertEquals("0000000000", blankKeySettings.aiHordeApiKey)
-
-        val customKeySettings = StudioSettings(useAiHorde = true, aiHordeKey = " horde_secret_123 \n")
-        assertEquals("horde_secret_123", customKeySettings.aiHordeApiKey)
-
-        // 2. AiHordeDirectorClient & SceneArtGenerator API endpoints (aihorde.net), token limits, and 3s/180s polling constants
-        assertEquals("https://aihorde.net/api/v2/generate/text/async", AiHordeDirectorClient.HORDE_TEXT_ASYNC_URL)
-        assertEquals("https://aihorde.net/api/v2/generate/text/status/abc-123", AiHordeDirectorClient.buildStatusUrl(" abc-123 "))
-        assertEquals("https://aihorde.net/api/v2/generate/async", AiHordeImageClient.HORDE_IMAGE_ASYNC_URL)
-        assertEquals("https://aihorde.net/api/v2/generate/async", SceneArtGenerator.HORDE_IMAGE_ASYNC_URL)
-        assertEquals("0000000000", AiHordeDirectorClient.resolveApiKey(""))
-        assertEquals("custom_key_99", AiHordeDirectorClient.resolveApiKey(" custom_key_99\n"))
-        assertEquals(1024, AiHordeDirectorClient.MAX_LENGTH)
-        assertEquals(4096, AiHordeDirectorClient.MAX_CONTEXT_LENGTH)
-        assertEquals(3_000L, AiHordeDirectorClient.POLL_INTERVAL_MS)
-        assertEquals(180_000L, AiHordeDirectorClient.POLL_TIMEOUT_MS)
-
-        // 3. Live queue wait status message formatting
-        assertEquals(
-            "AI Horde generating script... (~42s left)",
-            AiHordeDirectorClient.formatQueueStatusMessage(42)
-        )
-        assertEquals(
-            "AI Horde generating script... (~0s left)",
-            AiHordeDirectorClient.formatQueueStatusMessage(-5)
-        )
-        assertTrue(
-            AiHordeDirectorClient.formatQueueStatusMessage(18, "Scenes 1–4/6")
-                .startsWith("AI Horde generating script... (~18s left)")
-        )
-
-        // 4. Direct AI Horde image timeout & LlmDirectorClient streaming timeout constants
-        assertEquals(45_000L, AiHordeImageClient.DIRECT_HORDE_POLL_TIMEOUT_MS)
-        assertEquals(30L, LlmDirectorClient.CONNECT_TIMEOUT_SEC)
-        assertEquals(180L, LlmDirectorClient.READ_TIMEOUT_SEC)
-        assertEquals(60L, LlmDirectorClient.WRITE_TIMEOUT_SEC)
-        assertEquals(300L, LlmDirectorClient.CALL_TIMEOUT_SEC)
-
-        // 5. Horde prompt construction and sequential continuation alignment
-        val budget30 = LlmDirectorClient.calculateDurationBudget(30)
-        val composed = BuiltInPrompts.composeSystemPrompt("Be funny", 30, AnimationStyle.PAPER_DIORAMA)
-        val prompt = AiHordeDirectorClient.buildHordeStoryboardPrompt(
-            composedSystemPrompt = composed,
-            topic = "Bakit laging ubos ang sweldo?",
-            durationSeconds = 30,
-            style = AnimationStyle.PAPER_DIORAMA,
-            budget = budget30,
-            batchRange = SceneBatchRange(3, 6),
-            previousBatchSummary = "Scenes 1-2 introduced Juan checking his empty wallet."
-        )
-        assertTrue(prompt.contains("Scenes 3..6"))
-        assertTrue(prompt.contains("Scenes 1-2 introduced Juan"))
-        assertTrue(prompt.endsWith(LlmDirectorClient.STRICT_JSON_OUTPUT_FOOTER))
-
-        val renumbered = (1..2).map { i ->
-            SceneScript(
-                sceneId = i,
-                tagalogNarration = "Pagpapatuloy $i ng kuwento tungkol sa tamang pagbabadyet bawat sahod.",
-                visualDescription = "Filipino narrator smiling holding a coffee mug beside a kitchen counter in warm morning sunlight.",
-                backgroundPrompt = "warm kitchen",
-                cameraMotion = CameraMotion.PAN_LEFT,
-                actorRole = ActorRole.HERO,
-                actorAction = ActorAction.TALK_BOUNCE,
-                worldFx = WorldFx.NONE
-            )
-        }
-        val aligned = AiHordeDirectorClient.alignSequentialHordeScenes(renumbered, SceneBatchRange(3, 6))
-        assertEquals(listOf(3, 4), aligned.map { it.sceneId })
-    }
-
-    @Test
     fun `publicDohFallbackDnsResolvesViaCloudflareAndGoogleOnUnknownHostException`() {
-        // 1. Shared clients carry PublicDohFallbackDns and expected LLM timeouts
-        assertTrue(SharedHttpClients.llmClient.dns is PublicDohFallbackDns)
-        assertTrue(SharedHttpClients.aiHordeDirectorClient.dns is PublicDohFallbackDns)
-        assertTrue(SharedHttpClients.sceneArtClient.dns is PublicDohFallbackDns)
-        assertTrue(SharedHttpClients.modelDetectorClient.dns is PublicDohFallbackDns)
+        // 1. ElevenLabs shared client carries PublicDohFallbackDns
         assertTrue(SharedHttpClients.elevenLabsClient.dns is PublicDohFallbackDns)
-        assertEquals(30_000, SharedHttpClients.llmClient.connectTimeoutMillis)
-        assertEquals(180_000, SharedHttpClients.llmClient.readTimeoutMillis)
-        assertEquals(60_000, SharedHttpClients.llmClient.writeTimeoutMillis)
-        assertEquals(300_000, SharedHttpClients.llmClient.callTimeoutMillis)
 
         // 2. DoH JSON parser filters A records (type=1), ignores CNAME (type=5), and preserves hostname
         val dohJson = """
@@ -1781,231 +1199,15 @@ class ToonForgeCoreTest {
     }
 
     @Test
-    fun `dualAttemptLlmClientFallsBackToNonStreamingOnTimeout400OrEmptySseAndReportsFullHttpError`() {
-        val validScene = SceneScript(
-            sceneId = 1,
-            tagalogNarration = "Alam mo ba kung bakit mabilis maubos ang sahod bago pa dumating ang susunod na kinsenas?",
-            backgroundPrompt = "warm morning lamp light office",
-            visualDescription = "Young Filipino office worker looking worried at empty brown leather wallet on wooden table in warm morning lamp light.",
-            cameraMotion = CameraMotion.ZOOM_IN,
-            actorRole = ActorRole.HERO,
-            actorAction = ActorAction.TALK_BOUNCE,
-            worldFx = WorldFx.NONE
-        )
-        val nonStreamSuccessBody = """{"choices":[{"message":{"role":"assistant","content":"OK_SCENE_JSON"}}]}"""
-        val testSseParser: (Sequence<String>, StringBuilder?) -> OpenAiChoiceResult = { lines, raw ->
-            val joined = lines.onEach { raw?.append(it)?.append('\n') }.joinToString("\n")
-            val match = Regex("\"text\"\\s*:\\s*\"([^\"]+)\"|\"content\"\\s*:\\s*\"([^\"]+)\"").findAll(joined)
-            val content = match.joinToString("") { m -> m.groupValues[1].ifEmpty { m.groupValues[2] } }
-            OpenAiChoiceResult(content = content)
-        }
-        val testChoiceParser: (String) -> OpenAiChoiceResult = { body ->
-            val content = Regex("\"content\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.getOrNull(1).orEmpty()
-            OpenAiChoiceResult(content = content)
-        }
-        val testSceneParser: (String) -> List<SceneScript> = { content ->
-            if (content == "OK_SCENE_JSON") listOf(validScene)
-            else throw MalformedSceneJsonException("Unparseable content: $content")
-        }
-
-        // 1. Non-streaming Attempt 2 payload explicitly sets stream=false, temperature=0.6, max_tokens=4096, no thinking
-        val attempt2Json = LlmDirectorClient.buildChatCompletionPayloadJson(
-            model = "qwen/qwen3-32b",
-            systemPrompt = "sys",
-            userPrompt = "usr",
-            compatFlags = ChatPayloadCompatFlags(includeStream = false)
-        )
-        assertTrue(attempt2Json.contains("\"stream\":false"))
-        assertTrue(attempt2Json.contains("\"max_tokens\":4096"))
-        assertTrue(attempt2Json.contains("\"temperature\":0.6"))
-        assertFalse(attempt2Json.contains("\"thinking\""))
-        assertFalse(attempt2Json.contains("\"enable_thinking\""))
-
-        // 2. Attempt 1 throws SocketTimeoutException -> Attempt 2 retries with stream=false & max_tokens=4096
-        val seenPayloadsTimeout = mutableListOf<String>()
-        val timeoutClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val req = chain.request()
-                val buf = Buffer()
-                req.body?.writeTo(buf)
-                val bodyText = buf.readUtf8()
-                seenPayloadsTimeout.add(bodyText)
-                if (bodyText.contains("\"stream\":true")) {
-                    throw SocketTimeoutException("Read timed out during SSE")
-                }
-                Response.Builder()
-                    .request(req)
-                    .protocol(Protocol.HTTP_1_1)
-                    .code(200)
-                    .message("OK")
-                    .body(nonStreamSuccessBody.toResponseBody("application/json".toMediaType()))
-                    .build()
-            }
-            .build()
-
-        val scenesAfterTimeout = LlmDirectorClient(timeoutClient).executeDualAttemptSceneRequest(
-            url = "https://router.example.com/v1/chat/completions",
-            model = "qwen/qwen3-32b",
-            apiKey = "sk-test",
-            systemPrompt = "sys",
-            userPrompt = "usr",
-            sseParser = testSseParser,
-            choiceParser = testChoiceParser,
-            sceneParser = testSceneParser
-        )
-        assertEquals(1, scenesAfterTimeout.size)
-        assertEquals(2, seenPayloadsTimeout.size)
-        assertTrue(seenPayloadsTimeout[0].contains("\"stream\":true"))
-        assertFalse(seenPayloadsTimeout[0].contains("\"thinking\""))
-        assertFalse(seenPayloadsTimeout[0].contains("\"enable_thinking\""))
-        assertTrue(seenPayloadsTimeout[0].contains("\"max_tokens\":4096"))
-        assertTrue(seenPayloadsTimeout[0].contains("\"temperature\":0.6"))
-        assertTrue(seenPayloadsTimeout[1].contains("\"stream\":false"))
-        assertTrue(seenPayloadsTimeout[1].contains("\"max_tokens\":4096"))
-
-        // 3. Attempt 1 returns HTTP 400 -> Attempt 2 retries with stream=false and succeeds
-        val seenPayloads400 = mutableListOf<String>()
-        val http400Client = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val req = chain.request()
-                val buf = Buffer()
-                req.body?.writeTo(buf)
-                val bodyText = buf.readUtf8()
-                seenPayloads400.add(bodyText)
-                if (bodyText.contains("\"stream\":true")) {
-                    Response.Builder()
-                        .request(req)
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(400)
-                        .message("Bad Request")
-                        .body("""{"error":"stream=true with json_object is rejected"}""".toResponseBody("application/json".toMediaType()))
-                        .build()
-                } else {
-                    Response.Builder()
-                        .request(req)
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(200)
-                        .message("OK")
-                        .body(nonStreamSuccessBody.toResponseBody("application/json".toMediaType()))
-                        .build()
-                }
-            }
-            .build()
-
-        val scenesAfter400 = LlmDirectorClient(http400Client).executeDualAttemptSceneRequest(
-            url = "https://router.example.com/v1/chat/completions",
-            model = "deepseek-chat",
-            apiKey = "sk-test",
-            systemPrompt = "sys",
-            userPrompt = "usr",
-            sseParser = testSseParser,
-            choiceParser = testChoiceParser,
-            sceneParser = testSceneParser
-        )
-        assertEquals(1, scenesAfter400.size)
-        assertTrue(seenPayloads400[1].contains("\"stream\":false"))
-
-        // 4. Attempt 1 returns empty/unparseable SSE -> Attempt 2 retries with stream=false and succeeds
-        val emptySseClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val req = chain.request()
-                val buf = Buffer()
-                req.body?.writeTo(buf)
-                val bodyText = buf.readUtf8()
-                if (bodyText.contains("\"stream\":true")) {
-                    Response.Builder()
-                        .request(req)
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(200)
-                        .message("OK")
-                        .body("data: {\"choices\":[{\"delta\":{\"text\":\"Not valid json at all\"}}]}\ndata: [DONE]\n"
-                            .toResponseBody("text/event-stream".toMediaType()))
-                        .build()
-                } else {
-                    Response.Builder()
-                        .request(req)
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(200)
-                        .message("OK")
-                        .body(nonStreamSuccessBody.toResponseBody("application/json".toMediaType()))
-                        .build()
-                }
-            }
-            .build()
-
-        val scenesAfterBadSse = LlmDirectorClient(emptySseClient).executeDualAttemptSceneRequest(
-            url = "https://router.example.com/v1/chat/completions",
-            model = "deepseek-chat",
-            apiKey = "sk-test",
-            systemPrompt = "sys",
-            userPrompt = "usr",
-            sseParser = testSseParser,
-            choiceParser = testChoiceParser,
-            sceneParser = testSceneParser
-        )
-        assertEquals(1, scenesAfterBadSse.size)
-
-        // 5. Both attempts fail -> exception displays exact HTTP status, URL, model ID, and raw response snippet
-        val bothFailClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val req = chain.request()
-                val buf = Buffer()
-                req.body?.writeTo(buf)
-                val bodyText = buf.readUtf8()
-                val code = if (bodyText.contains("\"stream\":true")) 422 else 502
-                val raw = if (code == 422) "{\"detail\":\"bad stream payload\"}" else "{\"error\":\"upstream gateway 502\"}"
-                Response.Builder()
-                    .request(req)
-                    .protocol(Protocol.HTTP_1_1)
-                    .code(code)
-                    .message("Error")
-                    .body(raw.toResponseBody("application/json".toMediaType()))
-                    .build()
-            }
-            .build()
-
-        var capturedErr: LlmHttpException? = null
-        try {
-            LlmDirectorClient(bothFailClient).executeDualAttemptSceneRequest(
-                url = "https://custom.router.ai/v1/chat/completions",
-                model = "meta-llama/llama-3.3-70b",
-                apiKey = "sk-test",
-                systemPrompt = "sys",
-                userPrompt = "usr",
-                sseParser = testSseParser,
-                choiceParser = testChoiceParser,
-                sceneParser = testSceneParser
-            )
-        } catch (e: LlmHttpException) {
-            capturedErr = e
-        }
-        assertTrue(capturedErr != null)
-        val msg = capturedErr!!.message.orEmpty()
-        assertEquals(502, capturedErr.statusCode)
-        assertTrue(msg.contains("502"))
-        assertTrue(msg.contains("https://custom.router.ai/v1/chat/completions"))
-        assertTrue(msg.contains("meta-llama/llama-3.3-70b"))
-        assertTrue(msg.contains("upstream gateway 502"))
-    }
-
-    @Test
     fun `directScriptModeAndDualFormatStoryboardParserWorkWithoutNetwork`() {
-        // 1. 3-mode ScriptSourceMode & backward compatibility with legacy StudioSettings(useAiHorde=...)
-        assertEquals(ScriptSourceMode.CUSTOM_LLM, StudioSettings().effectiveScriptSourceMode)
-        assertEquals(ScriptSourceMode.AI_HORDE, StudioSettings(useAiHorde = true).effectiveScriptSourceMode)
+        // 1. Direct Script Mode only workflow
+        assertEquals(listOf(ScriptSourceMode.DIRECT_SCRIPT), ScriptSourceMode.entries)
         val directSettings = StudioSettings(
-            scriptSourceMode = ScriptSourceMode.DIRECT_SCRIPT,
             directScriptText = "Alam mo ba kung bakit kulang ang sahod?"
         )
-        assertEquals(ScriptSourceMode.DIRECT_SCRIPT, directSettings.effectiveScriptSourceMode)
-        assertTrue(directSettings.isDirectScriptMode)
-        assertFalse(directSettings.effectiveUseAiHorde)
+        assertEquals("Alam mo ba kung bakit kulang ang sahod?", directSettings.directScriptText)
 
-        // 2. Official fast Groq & Gemini OpenAI endpoints remain configured
-        assertEquals("https://api.groq.com/openai/v1", LlmProviderPreset.GROQ.baseUrl)
-        assertEquals("https://generativelanguage.googleapis.com/v1beta/openai", LlmProviderPreset.GEMINI.baseUrl)
-
-        // 3. Dual-format JSON detection vs plain Tagalog fallback (even with bracketed stage notes)
+        // 2. Dual-format JSON detection vs plain script fallback (even with bracketed stage notes)
         assertTrue(DirectStoryboardParser.looksLikeJsonInput(DirectStoryboardParser.COPY_JSON_TEMPLATE))
         assertTrue(DirectStoryboardParser.looksLikeJsonInput("""[{"scene_id":1,"tagalog_narration":"Magtabi agad ng ipon sa sahod mo."}]"""))
         assertTrue(DirectStoryboardParser.looksLikeJsonInput("```json\n{\"scenes\":[{\"tagalog_narration\":\"Ipon muna.\"}]}\n```"))
@@ -2018,7 +1220,7 @@ class ToonForgeCoreTest {
         assertTrue(DirectStoryboardParser.COPY_JSON_TEMPLATE.contains("\"hand_prop\""))
         assertTrue(DirectStoryboardParser.COPY_JSON_TEMPLATE.contains("\"callout_banner\""))
 
-        // 4. Plain Tagalog Zero-JSON fallback splits into balanced ~12-18 word scenes with varied motion/poses/framing
+        // 3. Plain Tagalog & English scripts split into balanced ~12-18 word scenes with varied motion/poses/framing
         val plainTagalog = """
             Alam mo ba kung bakit parang laging ubos ang sahod mo kahit halos walang pahinga sa trabaho araw-araw?
             Kasi kapag dumating ang sweldo ay nauuna agad ang gastos sa kape, delivery, at biglaang budol online.
@@ -2028,8 +1230,17 @@ class ToonForgeCoreTest {
 
         val result = DirectStoryboardParser.parse(plainTagalog, AnimationStyle.PAPER_DIORAMA)
         assertFalse(result.isJsonFormat)
-        assertEquals("Direct Tagalog Script", result.providerLabel)
+        assertEquals("Direct Script", result.providerLabel)
         assertTrue("Expected >= 4 balanced scenes, got ${result.scenes.size}", result.scenes.size >= 4)
+
+        val plainEnglish = """
+            Did you know why most monthly budgets break before payday even arrives for busy households?
+            Start by automating twenty percent savings first so unexpected bills never derail your long-term goals!
+        """.trimIndent()
+        val englishResult = DirectStoryboardParser.parse(plainEnglish, AnimationStyle.PAPER_DIORAMA)
+        assertFalse(englishResult.isJsonFormat)
+        assertTrue(englishResult.scenes.size >= 2)
+        assertTrue(englishResult.scenes.first().tagalogNarration.contains("Did you know"))
 
         result.scenes.forEachIndexed { idx, scene ->
             assertEquals(idx + 1, scene.sceneId)
@@ -2109,15 +1320,7 @@ class ToonForgeCoreTest {
         assertEquals(MotionPresetEngine.KINETIC_DIAGRAM, MotionHtmlDirector.mapPresetEngine(AnimationStyle.KINETIC_TYPOGRAPHY_DIAGRAM))
         assertEquals(MotionPresetEngine.CUTAWAY_SYSTEM, MotionHtmlDirector.mapPresetEngine(AnimationStyle.CROSS_SECTION))
 
-        // 2. Default settings keep AI background art OFF; when enabled, prompt enforces NO people/characters
-        assertFalse(StudioSettings().enableAiBackgroundArt)
-        val aiStagePrompt = AiHordeImageClient.buildEmptyStagePrompt("cozy bedroom night", AnimationStyle.PAPER_DIORAMA)
-        assertTrue(aiStagePrompt.contains("NO people"))
-        assertTrue(aiStagePrompt.contains("NO humans"))
-        assertTrue(aiStagePrompt.contains("NO characters"))
-        assertTrue(aiStagePrompt.contains("NO faces"))
-
-        // 3. HandProp aliases & DirectStoryboardParser no-chicken guardrail
+        // 2. HandProp aliases & DirectStoryboardParser no-chicken guardrail
         assertEquals(HandProp.MONEY_BAG, HandProp.fromRaw("WALLET_CASH"))
         assertEquals(HandProp.BOOK_NOTEBOOK, HandProp.fromRaw("DOCUMENT_PAPER"))
         assertEquals(HandProp.PHONE_SCREEN, HandProp.fromRaw("PHONE"))
@@ -2320,16 +1523,7 @@ class ToonForgeCoreTest {
         SfxTimelineMixer.mixSfxEventsIntoBuffer(mixBuf, sfxTimeline)
         assertTrue(mixBuf.any { abs(it) > 0.01f })
 
-        // 5. Viral Loop Blueprint prompt rules + _cover.jpg naming helper
-        val prompt = BuiltInPrompts.composeSystemPrompt(
-            BuiltInPrompts.VIRAL_PINOY_EXPLAINER.content,
-            30,
-            AnimationStyle.CROSS_SECTION
-        )
-        assertTrue(prompt.contains("VIRAL LOOP BLUEPRINT"))
-        assertTrue(prompt.contains("NO DEFAULT HOST CHARACTER"))
-        assertTrue(prompt.contains("\"hud_unit\""))
-        assertTrue(prompt.contains("\"custom_svg\""))
+        // 5. _cover.jpg naming helper
         assertEquals("ToonForge_123_cover.jpg", VideoGalleryRepository.coverFileNameForVideo("ToonForge_123.mp4"))
     }
 
@@ -2421,13 +1615,6 @@ class ToonForgeCoreTest {
         assertTrue(wrappedSvgHtml.contains("viewBox=\"0 0 1080 1920\""))
         assertTrue(wrappedSvgHtml.contains("window.seekToTime = function(seconds)"))
         assertTrue(wrappedSvgHtml.contains(".flow-pulse"))
-
-        // 4. Flat 2D Vector prompt builder
-        val vecPrompt = AiHordeImageClient.buildFlatVectorIllustrationPrompt(
-            "Solar panel roof connected to home battery",
-            AnimationStyle.ATMOSPHERIC_2D_STORY
-        )
-        assertTrue(vecPrompt.contains("2D flat vector illustration, cel-shaded, clean dark outlines, atmospheric lighting, no text, no watermark, no people"))
     }
 
     @Test
@@ -2536,21 +1723,7 @@ class ToonForgeCoreTest {
         assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.TENSION_RISER })
         assertTrue(keywordTimeline.any { it.cue == ProceduralSfxCue.ELECTRIC_HUM })
 
-        // 2. Built-in Master Content God Prompt v2
-        val godPrompt = MotionHtmlDirector.buildMasterContentGodPromptV2(
-            durationSeconds = 45,
-            style = AnimationStyle.CROSS_SECTION,
-            customCreativeNotes = "Focus on rooftop solar inverter"
-        )
-        assertTrue(godPrompt.contains("1080x1920"))
-        assertTrue(godPrompt.contains("<script id=\"storyboard-json\""))
-        assertTrue(godPrompt.contains("window.setSceneTimings"))
-        assertTrue(godPrompt.contains("window.seekToTime"))
-        assertTrue(godPrompt.contains("4-slot"))
-        assertTrue(godPrompt.contains("leader-line"))
-        assertTrue(godPrompt.contains("Focus on rooftop solar inverter"))
-
-        // 3. Multi-Video Batch Render Queue serialization & 5-item cap
+        // 2. Multi-Video Batch Render Queue serialization & 5-item cap
         assertEquals(5, VideoGenerationService.MAX_BATCH_QUEUE_SIZE)
         val batchItems = (1..7).map { idx ->
             RenderBatchItem(
@@ -2932,36 +2105,7 @@ class ToonForgeCoreTest {
         assertTrue(rendererHtml.contains("205"))
         assertTrue(rendererHtml.contains("1.5"))
 
-        // 2. Multi-Niche AI Director System Prompt covers all 3 niches & forbids raw HTML/digits
-        val saBayangPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
-            niche = StoryNiche.SA_BAYANG_ITO,
-            durationSeconds = 30,
-            aspectRatio = VideoAspectRatio.PORTRAIT_9_16
-        )
-        assertTrue(saBayangPrompt.contains("sa_bayang_ito"))
-        assertTrue(saBayangPrompt.contains("NEVER output HTML"))
-        assertTrue(saBayangPrompt.contains("ZERO DIGITS IN NARRATION"))
-
-        val dagaPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
-            niche = StoryNiche.MATALINONG_DAGA,
-            durationSeconds = 60,
-            aspectRatio = VideoAspectRatio.LANDSCAPE_16_9
-        )
-        assertTrue(dagaPrompt.contains("matalinong_daga"))
-        assertTrue(dagaPrompt.contains("\"rat\""))
-        assertTrue(dagaPrompt.contains("\"cat\""))
-        assertTrue(dagaPrompt.contains("16:9"))
-
-        val zackPrompt = BuiltInPrompts.buildMultiNicheDirectorSystemPrompt(
-            niche = StoryNiche.ZACK_EXPLAINER,
-            durationSeconds = 30,
-            aspectRatio = VideoAspectRatio.PORTRAIT_9_16
-        )
-        assertTrue(zackPrompt.contains("zack_explainer"))
-        assertTrue(zackPrompt.contains("anatomy_cutaway"))
-        assertTrue(zackPrompt.contains("anatomy_lab"))
-
-        // 3. JsonSanitizer parses Studio Episode Choreography JSON cleanly
+        // 2. JsonSanitizer parses Studio Episode Choreography JSON cleanly
         val studioChoreographyJson = """
             {
               "title": "SI PUSA AT SI DAGA",
@@ -3044,7 +2188,7 @@ class ToonForgeCoreTest {
                 voiceIdOverride = "v1",
                 productionMode = ProductionMode.FULL_AI_STORY,
                 importedClipUris = emptyList(),
-                scriptSourceModeOverride = ScriptSourceMode.CUSTOM_LLM,
+                scriptSourceModeOverride = ScriptSourceMode.DIRECT_SCRIPT,
                 directScriptOverride = "",
                 niche = StoryNiche.ZACK_EXPLAINER
             )

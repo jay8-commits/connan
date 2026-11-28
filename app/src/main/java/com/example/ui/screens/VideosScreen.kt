@@ -166,7 +166,7 @@ fun VideosScreen(
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startActivity(
-                                        Intent.createChooser(shareIntent, "Share Tagalog Video")
+                                        Intent.createChooser(shareIntent, "Share Video")
                                     )
                                 },
                                 onDelete = { pendingDelete = item }
@@ -246,7 +246,7 @@ private fun EmptyVideosPlaceholder() {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Create your first 1080x1920 Tagalog story in the Studio tab. Saved MP4 exports appear here ready to play and share.",
+                text = "Create your first animated video in the Studio tab. Saved MP4 exports appear here ready to play and share.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center

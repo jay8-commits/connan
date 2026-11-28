@@ -8,12 +8,9 @@ import android.provider.OpenableColumns
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.BuiltInPrompts
 import com.example.data.SettingsDataStore
 import com.example.data.VideoGalleryRepository
-import com.example.llm.DetectedModel
 import com.example.llm.DirectStoryboardParser
-import com.example.llm.UniversalModelDetector
 import com.example.model.ActorAction
 import com.example.model.ActorRole
 import com.example.model.AnimationStyle
@@ -32,7 +29,6 @@ import com.example.model.SceneScript
 import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
-import com.example.model.StoryNiche
 import com.example.model.StudioActorSpec
 import com.example.model.StudioCameraSpec
 import com.example.model.StudioSettings
@@ -77,18 +73,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsStore = SettingsDataStore(appContext)
     private val galleryRepo = VideoGalleryRepository(appContext)
     private val elevenLabsClient = ElevenLabsClient(appContext)
-    private val modelDetector = UniversalModelDetector()
 
     val settings: StateFlow<StudioSettings> = settingsStore.settingsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        initialValue = StudioSettings(promptTemplates = BuiltInPrompts.DEFAULT_TEMPLATES)
+        initialValue = StudioSettings()
     )
 
     val progress: StateFlow<GenerationProgress> = PipelineProgressBus.progress
-
-    private val _topic = MutableStateFlow(BuiltInPrompts.VIRAL_TAGALOG_IDEAS.first())
-    val topic: StateFlow<String> = _topic.asStateFlow()
 
     private val _directScriptText = MutableStateFlow("")
     val directScriptText: StateFlow<String> = _directScriptText.asStateFlow()
@@ -124,31 +116,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isCheckingCredits = MutableStateFlow(false)
     val isCheckingCredits: StateFlow<Boolean> = _isCheckingCredits.asStateFlow()
-
-    // Universal LLM & Voice Auto-Detection state
-    private val _detectedModels = MutableStateFlow<List<DetectedModel>>(emptyList())
-    val detectedModels: StateFlow<List<DetectedModel>> = _detectedModels.asStateFlow()
-
-    private val _isDetectingModels = MutableStateFlow(false)
-    val isDetectingModels: StateFlow<Boolean> = _isDetectingModels.asStateFlow()
-
-    private val _modelDetectionBanner = MutableStateFlow<DetectionBannerState?>(null)
-    val modelDetectionBanner: StateFlow<DetectionBannerState?> = _modelDetectionBanner.asStateFlow()
-
-    private val _showAllRawModels = MutableStateFlow(false)
-    val showAllRawModels: StateFlow<Boolean> = _showAllRawModels.asStateFlow()
-
-    private val _resolvedChatBaseUrl = MutableStateFlow("")
-    val resolvedChatBaseUrl: StateFlow<String> = _resolvedChatBaseUrl.asStateFlow()
-
-    private val _isModelSheetVisible = MutableStateFlow(false)
-    val isModelSheetVisible: StateFlow<Boolean> = _isModelSheetVisible.asStateFlow()
-
-    private val _isPingingModel = MutableStateFlow(false)
-    val isPingingModel: StateFlow<Boolean> = _isPingingModel.asStateFlow()
-
-    private val _modelPingBanner = MutableStateFlow<DetectionBannerState?>(null)
-    val modelPingBanner: StateFlow<DetectionBannerState?> = _modelPingBanner.asStateFlow()
 
     private val _detectedVoices = MutableStateFlow<List<DetectedVoice>>(emptyList())
     val detectedVoices: StateFlow<List<DetectedVoice>> = _detectedVoices.asStateFlow()
@@ -233,9 +200,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateTopic(value: String) {
-        _topic.value = value
-    }
 
     fun updateDirectScriptText(value: String) {
         _directScriptText.value = value
@@ -275,12 +239,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showMessage(message)
     }
 
-    fun pickRandomIdea() {
-        val current = _topic.value
-        val candidates = BuiltInPrompts.VIRAL_TAGALOG_IDEAS.filterNot { it == current }
-        _topic.value = candidates.randomOrNull() ?: BuiltInPrompts.VIRAL_TAGALOG_IDEAS.first()
-    }
-
     fun selectProductionMode(mode: ProductionMode) {
         _productionMode.value = mode
         if (mode == ProductionMode.CROSS_SECTION_EXPLAINER) {
@@ -307,12 +265,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectAspectRatio(ratio: VideoAspectRatio) {
         _aspectRatio.value = ratio
-    }
-
-    fun selectNiche(niche: StoryNiche) {
-        viewModelScope.launch {
-            settingsStore.setSelectedNiche(niche)
-        }
     }
 
     fun togglePreviewPlay() {
@@ -352,7 +304,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val action = _demoActorAction.value
         val fx = _demoWorldFx.value
         val style = _selectedStyle.value
-        val niche = settings.value.selectedNiche
         val pill = if (style == AnimationStyle.TECH_EXPLAINER && _demoStatusPill.value == StatusPill.NONE) {
             StatusPill.GOAL
         } else {
@@ -363,81 +314,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _demoHudWidget.value
         }
-        val callout = when {
-            niche == StoryNiche.ZACK_EXPLAINER -> "NERVE SIGNAL"
-            niche == StoryNiche.MATALINONG_DAGA -> "DISKARTENG DAGA"
-            style == AnimationStyle.TECH_EXPLAINER || pill != StatusPill.NONE || widget != HudWidget.NONE -> "90% LAKAS"
-            else -> ""
+        val callout = if (style == AnimationStyle.TECH_EXPLAINER || pill != StatusPill.NONE || widget != HudWidget.NONE) {
+            "90% FOCUS"
+        } else {
+            ""
         }
-        val narration = when {
-            niche == StoryNiche.ZACK_EXPLAINER || style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER ->
-                "Ganito dumadaloy ang signal sa loob ng katawan kapag nagugulat ka!"
-            niche == StoryNiche.MATALINONG_DAGA ->
-                "Huwag kang magpadala sa takot, Pusa—tingnan mo muna ang totoong pain!"
-            else ->
-                "Alam mo ba kung bakit ubos ang 90% ng sahod mo?"
+        val narration = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
+            "This is how energy flows inside the circuit when a surge hits!"
+        } else {
+            "Ever wonder why 90% of your progress happens in the final stretch?"
         }
-        val demoBgTheme = when (niche) {
-            StoryNiche.ZACK_EXPLAINER -> "anatomy_lab"
-            StoryNiche.MATALINONG_DAGA -> "town_sunset"
-            StoryNiche.SA_BAYANG_ITO -> if (style == AnimationStyle.DARK_SUSPENSE) "town_storm" else "town_sunset"
+        val demoBgTheme = when (style) {
+            AnimationStyle.DARK_SUSPENSE -> "town_storm"
+            AnimationStyle.CROSS_SECTION,
+            AnimationStyle.PIXEL_CUTAWAY_EXPLAINER -> "anatomy_lab"
+            else -> "town_sunset"
         }
-        val demoActors = when (niche) {
-            StoryNiche.ZACK_EXPLAINER -> listOf(
-                StudioActorSpec(
-                    role = "anatomy_cutaway",
-                    x = 0.5f,
-                    y = 0.52f,
-                    scale = 1.02f,
-                    targetScale = 1.08f,
-                    facing = 1,
-                    mood = "determined",
-                    action = "idle"
-                )
+        val demoActors = listOf(
+            StudioActorSpec(
+                role = when (role) {
+                    ActorRole.RICH_MAN -> "mayor"
+                    ActorRole.POOR_MAN -> "bully"
+                    else -> "hero"
+                },
+                x = 0.5f,
+                y = 0.58f,
+                scale = 1.0f,
+                targetScale = 1.06f,
+                facing = 1,
+                mood = "determined",
+                action = "idle"
             )
-            StoryNiche.MATALINONG_DAGA -> listOf(
-                StudioActorSpec(
-                    role = "rat",
-                    x = 0.34f,
-                    y = 0.60f,
-                    scale = 1.06f,
-                    targetScale = 1.08f,
-                    facing = 1,
-                    mood = "squint",
-                    action = "chop"
-                ),
-                StudioActorSpec(
-                    role = "cat",
-                    x = 0.68f,
-                    y = 0.58f,
-                    scale = 0.96f,
-                    targetScale = 0.96f,
-                    facing = -1,
-                    mood = "shocked",
-                    action = "idle"
-                )
-            )
-            StoryNiche.SA_BAYANG_ITO -> listOf(
-                StudioActorSpec(
-                    role = when (role) {
-                        ActorRole.RICH_MAN -> "mayor"
-                        ActorRole.POOR_MAN -> "bully"
-                        else -> "hero"
-                    },
-                    x = 0.5f,
-                    y = 0.58f,
-                    scale = 1.0f,
-                    targetScale = 1.06f,
-                    facing = 1,
-                    mood = "determined",
-                    action = "idle"
-                )
-            )
-        }
-        val demoFxKey = when (niche) {
-            StoryNiche.ZACK_EXPLAINER -> "nerve_sparks"
-            StoryNiche.MATALINONG_DAGA -> "sunbeams"
-            StoryNiche.SA_BAYANG_ITO -> if (style == AnimationStyle.DARK_SUSPENSE) "rain_storm" else "sunbeams"
+        )
+        val demoFxKey = when {
+            style == AnimationStyle.DARK_SUSPENSE -> "rain_storm"
+            fx == WorldFx.FIRE_SPARKS -> "nerve_sparks"
+            else -> "sunbeams"
         }
         val words = narration.split(" ")
         var cursor = 120.0
@@ -454,7 +366,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     backgroundPrompt = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
                         "16-bit cutaway diagram of glowing lithium battery circuit board"
                     } else {
-                        "bright sunny Pinoy market street with warm lanterns"
+                        "bright sunny animated street with warm lanterns"
                     },
                     cameraMotion = CameraMotion.ZOOM_IN,
                     actorRole = role,
@@ -463,13 +375,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     statusPill = pill,
                     calloutBanner = callout,
                     hudWidget = widget,
-                    hudLabel = "IPON POWER",
+                    hudLabel = "PROGRESS POWER",
                     hudFromValue = 18,
                     hudToValue = 88,
                     checklistItems = listOf(
-                        "Iwasan ang impulse spend",
-                        "Magtabi agad ng 20%",
-                        "I-invest sa emergency fund"
+                        "Eliminate small leaks",
+                        "Automate your savings",
+                        "Reinvest consistently"
                     ),
                     shotFraming = _demoShotFraming.value,
                     cutawayStage = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
@@ -489,14 +401,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     cutawaySubject = if (style == AnimationStyle.PIXEL_CUTAWAY_EXPLAINER) {
                         CutawaySubject.BATTERY_CIRCUIT_CHARGE
                     } else null,
-                    speaker = if (niche == StoryNiche.MATALINONG_DAGA) "rat" else "narrator",
+                    speaker = "narrator",
                     durationSec = 4.2,
                     bgTheme = demoBgTheme,
                     cameraSpec = StudioCameraSpec(preset = "push_in", zoom = 1.12f),
                     actors = demoActors,
                     fxKey = demoFxKey,
-                    episodeTitle = niche.seriesBadge,
-                    storyNiche = niche
+                    episodeTitle = "STUDIO PREVIEW"
                 ),
                 startMs = 0.0,
                 endMs = 4200.0,
@@ -515,62 +426,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setSecondaryVoiceId(voiceId: String) {
         viewModelScope.launch {
             settingsStore.setSecondaryVoiceId(voiceId)
-        }
-    }
-
-    fun selectPromptTemplate(id: String) {
-        viewModelScope.launch {
-            settingsStore.setActivePrompt(id)
-        }
-    }
-
-    fun savePromptTemplate(id: String, name: String, content: String) {
-        viewModelScope.launch {
-            settingsStore.updateTemplateContent(id, name, content)
-            showMessage("Master prompt saved")
-        }
-    }
-
-    fun resetPromptTemplate(id: String) {
-        viewModelScope.launch {
-            settingsStore.resetTemplate(id)
-            showMessage("Built-in template restored")
-        }
-    }
-
-    fun deletePromptTemplate(id: String) {
-        viewModelScope.launch {
-            settingsStore.deleteTemplate(id)
-            showMessage("Custom template deleted")
-        }
-    }
-
-    fun importTxtPrompt(uri: Uri) {
-        viewModelScope.launch {
-            try {
-                val (fileName, text) = withContext(Dispatchers.IO) {
-                    val resolver = appContext.contentResolver
-                    var name = "Imported_Prompt.txt"
-                    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                        if (c.moveToFirst()) {
-                            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            if (idx >= 0) name = c.getString(idx) ?: name
-                        }
-                    }
-                    val content = resolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
-                        it.readText()
-                    }.orEmpty()
-                    name to content
-                }
-                if (text.isBlank()) {
-                    showMessage("Selected .txt file is empty")
-                    return@launch
-                }
-                val saved = settingsStore.importTxtTemplate(fileName, text)
-                showMessage("Imported & activated \"${saved.name}\"")
-            } catch (e: Exception) {
-                showMessage("Failed to import .txt: ${e.message}")
-            }
         }
     }
 
@@ -694,7 +549,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun upsertPronunciation(original: String, spoken: String) {
         if (original.isBlank() || spoken.isBlank()) {
-            showMessage("Enter both the word and its phonetic Tagalog spelling")
+            showMessage("Enter both the word and its phonetic pronunciation")
             return
         }
         viewModelScope.launch {
@@ -712,7 +567,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetPronunciationDictionary() {
         viewModelScope.launch {
             settingsStore.resetPronunciationDictionary()
-            showMessage("Restored default Tagalog pronunciation dictionary")
+            showMessage("Restored default pronunciation dictionary")
         }
     }
 
@@ -768,10 +623,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     putExtra(VideoGenerationService.EXTRA_BATCH_QUEUE_FILE, queueFile.absolutePath)
                 }
                 ContextCompat.startForegroundService(appContext, intent)
-                if (item.scriptSourceModeOverride == ScriptSourceMode.DIRECT_SCRIPT) {
-                    _directScriptText.value = ""
-                    settingsStore.setDirectScriptText("")
-                }
+                _directScriptText.value = ""
+                settingsStore.setDirectScriptText("")
                 showMessage("Added \"${item.topic}\" to active batch queue")
             } else {
                 val current = _stagedRenderQueue.value
@@ -787,10 +640,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 val updated = current + uiItem
                 _stagedRenderQueue.value = updated
-                if (item.scriptSourceModeOverride == ScriptSourceMode.DIRECT_SCRIPT) {
-                    _directScriptText.value = ""
-                    settingsStore.setDirectScriptText("")
-                }
+                _directScriptText.value = ""
+                settingsStore.setDirectScriptText("")
                 showMessage("Queued (${updated.size}/${VideoGenerationService.MAX_BATCH_QUEUE_SIZE}): ${item.topic}")
             }
         }
@@ -802,47 +653,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ): Pair<RenderBatchItem, String>? {
         val mode = _productionMode.value
         val clips = _importedClips.value
-        val cleanVoiceDraft = voiceIdDraft?.let { UniversalModelDetector.cleanCredential(it) }.orEmpty()
+        val cleanVoiceDraft = voiceIdDraft?.let { ElevenLabsClient.cleanCredential(it) }.orEmpty()
         if (cleanVoiceDraft.isNotEmpty()) {
             settingsStore.setSelectedVoiceId(cleanVoiceDraft)
         }
-        val cleanVoiceCatDraft = voiceIdCatDraft?.let { UniversalModelDetector.cleanCredential(it) }
+        val cleanVoiceCatDraft = voiceIdCatDraft?.let { ElevenLabsClient.cleanCredential(it) }
         if (cleanVoiceCatDraft != null) {
             settingsStore.setSecondaryVoiceId(cleanVoiceCatDraft)
         }
         val snapshot = settingsStore.getSnapshot()
-        val scriptMode = snapshot.effectiveScriptSourceMode
         val scriptDraft = _directScriptText.value.trim().ifBlank { snapshot.directScriptText.trim() }
-        val currentTopic = _topic.value.trim()
 
-        if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
-            if (scriptDraft.isEmpty()) {
-                showMessage("Paste a JSON, HTML/SVG storyboard, or plain Tagalog script first")
-                return null
-            }
-        } else if (currentTopic.isEmpty()) {
-            showMessage("Enter a Tagalog story topic first")
+        if (scriptDraft.isEmpty()) {
+            showMessage("Paste a JSON, HTML/SVG storyboard, or plain script first")
             return null
         }
 
-        val effectiveLlmBase = snapshot.effectiveLlmBaseUrl
-        val effectiveLlmKey = snapshot.effectiveLlmApiKey
-        val resolvedModel = snapshot.effectiveSelectedModelId.ifBlank {
-            UniversalModelDetector.matchPresetForUrl(effectiveLlmBase).defaultModelHint
-        }
         val hasElevenLabsKey = snapshot.elevenLabsKeys.any {
-            UniversalModelDetector.cleanCredential(it.key).isNotEmpty()
+            ElevenLabsClient.cleanCredential(it.key).isNotEmpty()
         }
         val effectiveVoice = cleanVoiceDraft.ifBlank { snapshot.effectiveVoiceId }
         val effectiveSecondaryVoice = cleanVoiceCatDraft ?: snapshot.effectiveSecondaryVoiceId
         val selectedRatio = _aspectRatio.value
 
         val missing = buildList {
-            if (scriptMode == ScriptSourceMode.CUSTOM_LLM) {
-                if (effectiveLlmBase.isBlank()) add("LLM Base URL")
-                if (effectiveLlmKey.isBlank()) add("LLM API Key")
-                if (resolvedModel.isBlank()) add("LLM Model ID")
-            }
             if (!hasElevenLabsKey) add("ElevenLabs API Key")
             if (effectiveVoice.isBlank()) add("ElevenLabs Voice ID")
         }
@@ -861,34 +695,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return null
         }
 
-        val launchTopic = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) {
-            DirectStoryboardParser.deriveTopicTitle(scriptDraft)
-        } else {
-            currentTopic
-        }
+        val launchTopic = DirectStoryboardParser.deriveTopicTitle(scriptDraft)
         val effectiveStyle = if (mode == ProductionMode.CROSS_SECTION_EXPLAINER) {
             AnimationStyle.CROSS_SECTION
         } else {
             _selectedStyle.value
         }
         val request = RenderBatchItem(
-            topic = launchTopic.ifBlank { "Direct Tagalog Story" },
+            topic = launchTopic.ifBlank { "Direct Story" },
             style = effectiveStyle,
             durationSec = _selectedDurationSec.value,
             voiceIdOverride = effectiveVoice,
             voiceIdCatOverride = effectiveSecondaryVoice,
             aspectRatio = selectedRatio,
-            niche = snapshot.selectedNiche,
             productionMode = mode,
             importedClipUris = clips.map { Uri.parse(it.uriString) },
-            scriptSourceModeOverride = scriptMode,
-            directScriptOverride = if (scriptMode == ScriptSourceMode.DIRECT_SCRIPT) scriptDraft else ""
+            scriptSourceModeOverride = ScriptSourceMode.DIRECT_SCRIPT,
+            directScriptOverride = scriptDraft
         )
-        val baseSummary = when (scriptMode) {
-            ScriptSourceMode.DIRECT_SCRIPT -> DirectStoryboardParser.estimatePreviewSummary(scriptDraft)
-            ScriptSourceMode.CUSTOM_LLM -> "Custom LLM • ${_selectedDurationSec.value}s"
-            ScriptSourceMode.AI_HORDE -> "AI Horde • ${_selectedDurationSec.value}s"
-        }
+        val baseSummary = DirectStoryboardParser.estimatePreviewSummary(scriptDraft)
         val summary = "$baseSummary • ${selectedRatio.shortLabel}"
         return request to summary
     }
@@ -916,9 +741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val staged = _stagedRenderQueue.value
             if (staged.isNotEmpty()) {
                 val batchRequests = staged.map { it.request }.toMutableList()
-                val snapshot = settingsStore.getSnapshot()
-                if (snapshot.effectiveScriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT &&
-                    _directScriptText.value.isNotBlank() &&
+                if (_directScriptText.value.isNotBlank() &&
                     batchRequests.size < VideoGenerationService.MAX_BATCH_QUEUE_SIZE
                 ) {
                     prepareValidatedRenderRequest(voiceIdDraft, voiceIdCatDraft)?.let { (extraItem, _) ->
@@ -977,8 +800,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addElevenLabsKey(key: String, ttsBaseUrl: String = settings.value.effectiveTtsBaseUrl) {
-        val cleanKey = UniversalModelDetector.cleanCredential(key)
-        val cleanBase = UniversalModelDetector.cleanUrl(ttsBaseUrl)
+        val cleanKey = ElevenLabsClient.cleanCredential(key)
+        val cleanBase = ElevenLabsClient.cleanTtsBaseUrl(ttsBaseUrl)
         if (cleanKey.isBlank()) return
         viewModelScope.launch {
             settingsStore.addElevenLabsKey(cleanKey)
@@ -1000,7 +823,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isCheckingCredits.value = true
             try {
-                val cleanBase = UniversalModelDetector.cleanUrl(ttsBaseUrl)
+                val cleanBase = ElevenLabsClient.cleanTtsBaseUrl(ttsBaseUrl)
                 settingsStore.setTtsBaseUrl(cleanBase)
                 val keys = settingsStore.getSnapshot().elevenLabsKeys
                 if (keys.isEmpty()) {
@@ -1025,8 +848,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isCheckingCredits.value = true
             _voiceDetectionBanner.value = null
             try {
-                val cleanBase = UniversalModelDetector.cleanUrl(ttsBaseUrl)
-                val cleanDraft = UniversalModelDetector.cleanCredential(draftApiKey)
+                val cleanBase = ElevenLabsClient.cleanTtsBaseUrl(ttsBaseUrl)
+                val cleanDraft = ElevenLabsClient.cleanCredential(draftApiKey)
                 settingsStore.setTtsBaseUrl(cleanBase)
                 if (cleanDraft.isNotBlank()) {
                     settingsStore.addElevenLabsKey(cleanDraft)
@@ -1086,143 +909,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         detectVoicesAndCredits(ttsBaseUrl, draftApiKey)
     }
 
-    fun detectAvailableModels(
-        baseUrl: String,
-        apiKey: String,
-        showAllRaw: Boolean = _showAllRawModels.value,
-        openSheetOnSuccess: Boolean = true
-    ) {
-        if (_isDetectingModels.value) return
-        viewModelScope.launch {
-            _isDetectingModels.value = true
-            _modelDetectionBanner.value = null
-            try {
-                val res = modelDetector.detectAvailableModels(
-                    baseUrl = baseUrl,
-                    apiKey = apiKey,
-                    showAllRaw = showAllRaw
-                )
-                res.onSuccess { detected ->
-                    _detectedModels.value = detected.models
-                    _resolvedChatBaseUrl.value = detected.resolvedChatBaseUrl
-                    val label = if (showAllRaw) "models" else "chat models"
-                    _modelDetectionBanner.value = DetectionBannerState(
-                        isSuccess = true,
-                        message = "Detected ${detected.models.size} $label"
-                    )
-                    if (openSheetOnSuccess && detected.models.isNotEmpty()) {
-                        _isModelSheetVisible.value = true
-                    }
-                }.onFailure { err ->
-                    _detectedModels.value = emptyList()
-                    _modelDetectionBanner.value = DetectionBannerState(
-                        isSuccess = false,
-                        message = err.message ?: "Model detection failed"
-                    )
-                }
-            } finally {
-                _isDetectingModels.value = false
-            }
-        }
-    }
-
-    fun setShowAllRawModels(showAll: Boolean, baseUrl: String, apiKey: String) {
-        _showAllRawModels.value = showAll
-        if (baseUrl.isNotBlank()) {
-            detectAvailableModels(
-                baseUrl = baseUrl,
-                apiKey = apiKey,
-                showAllRaw = showAll,
-                openSheetOnSuccess = false
-            )
-        }
-    }
-
-    fun openModelPickerSheet() {
-        _isModelSheetVisible.value = true
-    }
-
-    fun dismissModelPickerSheet() {
-        _isModelSheetVisible.value = false
-    }
-
-    fun selectDetectedModel(
-        baseUrl: String,
-        apiKey: String,
-        modelId: String
-    ) {
-        _isModelSheetVisible.value = false
-        _modelPingBanner.value = null
-        val chatBase = _resolvedChatBaseUrl.value.ifBlank { settings.value.detectedChatBaseUrl }
-        viewModelScope.launch {
-            settingsStore.setDetectedModelSelection(
-                llmBaseUrl = baseUrl,
-                llmApiKey = apiKey,
-                selectedModelId = modelId,
-                detectedChatBaseUrl = chatBase
-            )
-        }
-    }
-
-    fun pingSelectedModel(baseUrl: String, apiKey: String, modelId: String) {
-        if (_isPingingModel.value) return
-        viewModelScope.launch {
-            _isPingingModel.value = true
-            _modelPingBanner.value = null
-            try {
-                val chatBase = _resolvedChatBaseUrl.value.ifBlank { settings.value.detectedChatBaseUrl }
-                val res = modelDetector.testModelPing(
-                    baseUrl = baseUrl,
-                    apiKey = apiKey,
-                    modelId = modelId,
-                    detectedChatBaseUrl = chatBase
-                )
-                res.onSuccess { ping ->
-                    _modelPingBanner.value = DetectionBannerState(
-                        isSuccess = true,
-                        message = "Verified • ${ping.latencyMs}ms"
-                    )
-                }.onFailure { err ->
-                    _modelPingBanner.value = DetectionBannerState(
-                        isSuccess = false,
-                        message = err.message ?: "Ping failed"
-                    )
-                }
-            } finally {
-                _isPingingModel.value = false
-            }
-        }
-    }
-
-    fun clearLlmDetectionState() {
-        _modelDetectionBanner.value = null
-        _modelPingBanner.value = null
-        _detectedModels.value = emptyList()
-        _resolvedChatBaseUrl.value = ""
-    }
-
-    fun updateLlmConfigImmediate(baseUrl: String, apiKey: String, modelId: String) {
-        viewModelScope.launch {
-            val cleanBase = UniversalModelDetector.cleanUrl(baseUrl)
-            val cleanKey = UniversalModelDetector.cleanCredential(apiKey)
-            val cleanModel = UniversalModelDetector.cleanCredential(modelId)
-            val chatBase = _resolvedChatBaseUrl.value.ifBlank {
-                if (cleanBase.equals(settings.value.effectiveLlmBaseUrl, ignoreCase = true)) {
-                    settings.value.detectedChatBaseUrl
-                } else ""
-            }
-            settingsStore.setLlmConfig(
-                llmBaseUrl = cleanBase,
-                llmApiKey = cleanKey,
-                selectedModelId = cleanModel,
-                detectedChatBaseUrl = chatBase
-            )
-        }
-    }
-
     fun setTtsBaseUrl(ttsBaseUrl: String) {
         viewModelScope.launch {
-            settingsStore.setTtsBaseUrl(ttsBaseUrl)
+            settingsStore.setTtsBaseUrl(ElevenLabsClient.cleanTtsBaseUrl(ttsBaseUrl))
         }
     }
 
@@ -1238,77 +927,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setScriptSourceMode(mode: ScriptSourceMode) {
-        viewModelScope.launch {
-            settingsStore.setScriptSourceMode(mode)
-            val msg = when (mode) {
-                ScriptSourceMode.DIRECT_SCRIPT -> "Switched to Direct Script Mode (Zero API timeout • ElevenLabs TTS active)"
-                ScriptSourceMode.CUSTOM_LLM -> "Switched to Custom LLM API Engine"
-                ScriptSourceMode.AI_HORDE -> "Switched to AI Horde (aihorde.net) Async Engine"
-            }
-            showMessage(msg)
-        }
-    }
-
-    fun setUseAiHorde(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsStore.setUseAiHorde(enabled)
-            showMessage(
-                if (enabled) "Switched to AI Horde Async Engine (ElevenLabs TTS stays active)"
-                else "Switched to Custom LLM API Engine"
-            )
-        }
-    }
-
-    fun setAiHordeKey(apiKey: String) {
-        viewModelScope.launch {
-            settingsStore.setAiHordeKey(apiKey)
-        }
-    }
-
-    fun setEnableAiBackgroundArt(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsStore.setEnableAiBackgroundArt(enabled)
-            showMessage(
-                if (enabled) "Optional AI Background Art enabled (empty stage, no people)"
-                else "Using pure multi-layer 2D/2.5D vector SVG scenery"
-            )
-        }
-    }
-
-    fun saveLlmSettings(
-        llmBaseUrl: String,
-        llmApiKey: String,
-        selectedModelId: String,
+    fun saveTtsSettings(
         ttsBaseUrl: String = settings.value.effectiveTtsBaseUrl,
         ttsModelId: String = settings.value.effectiveTtsModelId,
         selectedVoiceId: String = settings.value.effectiveVoiceId,
         secondaryVoiceId: String = settings.value.effectiveSecondaryVoiceId,
-        aiHordeKey: String = settings.value.aiHordeKey,
-        narrationSpeed: Float = settings.value.narrationSpeed,
-        useAiHorde: Boolean? = null
+        narrationSpeed: Float = settings.value.narrationSpeed
     ) {
         viewModelScope.launch {
-            val cleanBase = UniversalModelDetector.cleanUrl(llmBaseUrl)
-            val chatBase = _resolvedChatBaseUrl.value.ifBlank {
-                if (cleanBase.equals(settings.value.effectiveLlmBaseUrl, ignoreCase = true)) {
-                    settings.value.detectedChatBaseUrl
-                } else ""
-            }
-            settingsStore.saveLlmSettings(
-                llmBaseUrl = cleanBase,
-                llmApiKey = UniversalModelDetector.cleanCredential(llmApiKey),
-                selectedModelId = UniversalModelDetector.cleanCredential(selectedModelId),
-                detectedChatBaseUrl = chatBase,
-                ttsBaseUrl = UniversalModelDetector.cleanUrl(ttsBaseUrl),
-                ttsModelId = UniversalModelDetector.cleanCredential(ttsModelId),
-                selectedVoiceId = UniversalModelDetector.cleanCredential(selectedVoiceId),
-                secondaryVoiceId = UniversalModelDetector.cleanCredential(secondaryVoiceId),
-                aiHordeKey = UniversalModelDetector.cleanCredential(aiHordeKey),
-                narrationSpeed = narrationSpeed,
-                useAiHorde = useAiHorde
+            settingsStore.saveTtsSettings(
+                ttsBaseUrl = ElevenLabsClient.cleanTtsBaseUrl(ttsBaseUrl),
+                ttsModelId = ElevenLabsClient.cleanCredential(ttsModelId),
+                selectedVoiceId = ElevenLabsClient.cleanCredential(selectedVoiceId),
+                secondaryVoiceId = ElevenLabsClient.cleanCredential(secondaryVoiceId),
+                narrationSpeed = narrationSpeed
             )
-            showMessage("API & Studio settings saved")
+            showMessage("Audio & voice settings saved")
         }
     }
 

@@ -141,24 +141,11 @@ enum class ScriptSourceMode(
     DIRECT_SCRIPT(
         title = "Direct Script",
         shortLabel = "Direct Script",
-        badge = "Sureball / No API Timeout"
-    ),
-    CUSTOM_LLM(
-        title = "Custom LLM API",
-        shortLabel = "Custom LLM",
-        badge = "Dual-Attempt + Fallback"
-    ),
-    AI_HORDE(
-        title = "AI Horde (aihorde.net)",
-        shortLabel = "AI Horde",
-        badge = "aihorde.net + DoH"
+        badge = "Offline Engine + ElevenLabs"
     );
 
     companion object {
-        fun fromRaw(raw: String?): ScriptSourceMode {
-            val clean = raw?.trim()?.uppercase() ?: return CUSTOM_LLM
-            return entries.firstOrNull { it.name == clean } ?: CUSTOM_LLM
-        }
+        fun fromRaw(raw: String?): ScriptSourceMode = DIRECT_SCRIPT
     }
 }
 
@@ -616,13 +603,6 @@ data class TimelineScene(
         get() = (endMs - startMs).coerceAtLeast(1.0)
 }
 
-data class PromptTemplate(
-    val id: String,
-    val name: String,
-    val content: String,
-    val isBuiltIn: Boolean = false
-)
-
 data class PronunciationEntry(
     val original: String,
     val spoken: String
@@ -647,59 +627,19 @@ data class ElevenLabsKeyEntry(
 }
 
 data class StudioSettings(
-    val promptTemplates: List<PromptTemplate> = emptyList(),
-    val activePromptId: String = "",
     val elevenLabsKeys: List<ElevenLabsKeyEntry> = emptyList(),
     val selectedVoiceId: String = "N2IVS1w4EtoT3dr4eOWO",
     val secondaryVoiceId: String = "",
     val ttsBaseUrl: String = "https://api.elevenlabs.io",
     val ttsModelId: String = "eleven_v4",
-    val llmBaseUrl: String = "",
-    val llmApiKey: String = "",
-    val selectedModelId: String = "",
-    val detectedChatBaseUrl: String = "",
-    val groqApiKey: String = "",
-    val openRouterApiKey: String = "",
-    val customBaseUrl: String = "",
-    val customModel: String = "",
-    val customApiKey: String = "",
-    val useAiHorde: Boolean = false,
-    val scriptSourceMode: ScriptSourceMode? = null,
     val directScriptText: String = "",
-    val aiHordeKey: String = "0000000000",
     val customSpritePaths: Map<String, String> = emptyMap(),
     val spriteStickerOutline: Boolean = true,
     val customBgmPath: String = "",
     val customBgmName: String = "",
     val pronunciationDictionary: List<PronunciationEntry> = emptyList(),
-    val narrationSpeed: Float = 1.0f,
-    val enableAiBackgroundArt: Boolean = false,
-    val selectedNiche: StoryNiche = StoryNiche.SA_BAYANG_ITO
+    val narrationSpeed: Float = 1.0f
 ) {
-    val activeTemplate: PromptTemplate?
-        get() = promptTemplates.firstOrNull { it.id == activePromptId } ?: promptTemplates.firstOrNull()
-
-    val effectiveScriptSourceMode: ScriptSourceMode
-        get() = scriptSourceMode ?: if (useAiHorde) ScriptSourceMode.AI_HORDE else ScriptSourceMode.CUSTOM_LLM
-
-    val isDirectScriptMode: Boolean
-        get() = effectiveScriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT
-
-    val effectiveUseAiHorde: Boolean
-        get() = effectiveScriptSourceMode == ScriptSourceMode.AI_HORDE
-
-    val aiHordeApiKey: String
-        get() = aiHordeKey.replace("\r", "").replace("\n", "").trim().ifBlank { "0000000000" }
-
-    val effectiveLlmBaseUrl: String
-        get() = llmBaseUrl.ifBlank { customBaseUrl }.replace("\r", "").replace("\n", "").trim()
-
-    val effectiveLlmApiKey: String
-        get() = llmApiKey.ifBlank { customApiKey }.replace("\r", "").replace("\n", "").trim()
-
-    val effectiveSelectedModelId: String
-        get() = selectedModelId.ifBlank { customModel }.replace("\r", "").replace("\n", "").trim()
-
     val effectiveTtsBaseUrl: String
         get() = ttsBaseUrl.ifBlank { "https://api.elevenlabs.io" }.replace("\r", "").replace("\n", "").trim()
 
@@ -728,7 +668,7 @@ data class GenerationProgress(
     val step: PipelineStep = PipelineStep.IDLE,
     val stepProgress: Float = 0f,
     val overallProgress: Float = 0f,
-    val statusMessage: String = "Ready to forge your Tagalog story",
+    val statusMessage: String = "Ready to create your animated story",
     val sceneCount: Int = 0,
     val currentSceneIndex: Int = 0,
     val providerInfo: String = "",

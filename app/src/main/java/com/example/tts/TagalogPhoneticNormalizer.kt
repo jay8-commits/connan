@@ -45,12 +45,65 @@ object TagalogPhoneticNormalizer {
         "hustle" to "hasol"
     )
 
+    private val TAGALOG_CONTEXT_WORDS = setOf(
+        "ang", "ng", "nang", "sa", "na", "mga", "ay", "si", "ni", "ko", "mo", "ka",
+        "ba", "po", "kung", "bakit", "paano", "hindi", "pero", "dahil", "kapag", "para",
+        "ito", "iyan", "yan", "iyon", "yun", "yung", "may", "mayroon", "meron", "wala",
+        "walang", "isang", "isa", "pag", "kaya", "kasi", "lang", "din", "rin", "naman",
+        "talaga", "pala", "muna", "sabi", "alam", "pera", "sahod", "sweldo", "ipon",
+        "buhay", "araw", "bahay", "tao", "piso", "gusto", "dapat", "huwag", "wag",
+        "bawal", "laging", "ngayon", "bukas", "gabi", "umaga", "sikreto", "diskarte",
+        "trabaho", "utang", "tuwing", "bawat", "kumusta", "magkano", "natin", "namin",
+        "nila", "kayo", "kami", "tayo", "siya", "sila", "ako", "ikaw", "dito", "doon",
+        "bumili", "gamit", "nakatipid", "malaki", "mabilis", "negosyo"
+    )
+
+    fun hasTagalogContext(raw: String): Boolean {
+        if (raw.contains('₱')) return true
+        val stripped = raw.replace(Regex("\\[[^\\]]+\\]"), " ")
+        val tokens = stripped.split(Regex("\\s+"))
+        for (rawTok in tokens) {
+            val clean = rawTok.lowercase().replace(Regex("^[^\\p{L}-]+|[^\\p{L}-]+$"), "")
+            if (clean.isEmpty()) continue
+            if (clean.startsWith("nag-") || clean.startsWith("mag-") ||
+                clean.startsWith("pag-") || clean.startsWith("nakaka") ||
+                clean.startsWith("pinaka")
+            ) {
+                return true
+            }
+            for (part in clean.split('-', '\'')) {
+                if (part in TAGALOG_CONTEXT_WORDS) return true
+            }
+        }
+        return false
+    }
+
     fun normalize(
         raw: String,
         customDictionary: List<PronunciationEntry> = emptyList()
     ): String {
         var text = raw.trim()
         if (text.isEmpty()) return ""
+
+        val sortedCustom = customDictionary
+            .filter { it.original.isNotBlank() && it.spoken.isNotBlank() }
+            .sortedByDescending { it.original.length }
+
+        if (!hasTagalogContext(text)) {
+            for (entry in sortedCustom) {
+                val orig = entry.original.trim()
+                val spoken = entry.spoken.trim()
+                if (orig == "₱" || orig == "%") continue
+                val isWordLike = orig.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == ' ' }
+                val pattern = if (isWordLike) {
+                    Regex("\\b${Regex.escape(orig)}\\b", RegexOption.IGNORE_CASE)
+                } else {
+                    Regex(Regex.escape(orig), RegexOption.IGNORE_CASE)
+                }
+                text = pattern.replace(text) { " $spoken " }
+            }
+            return text.replace(Regex("\\s+"), " ").trim()
+        }
 
         val customPesoUnit = customDictionary
             .firstOrNull { it.original.trim() == "₱" }
@@ -89,10 +142,6 @@ object TagalogPhoneticNormalizer {
         }
 
         // 3. Apply editable custom dictionary entries BEFORE integer/loanword passes so custom words win
-        val sortedCustom = customDictionary
-            .filter { it.original.isNotBlank() && it.spoken.isNotBlank() }
-            .sortedByDescending { it.original.length }
-
         for (entry in sortedCustom) {
             val orig = entry.original.trim()
             val spoken = entry.spoken.trim()

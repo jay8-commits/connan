@@ -320,7 +320,7 @@ $normalizedSvg
     ): DirectParseResult {
         val trimmed = rawInput.trim()
         require(trimmed.isNotEmpty()) {
-            "Enter or import a JSON, HTML/SVG storyboard, or Tagalog script first."
+            "Enter or import a JSON, HTML/SVG storyboard, or plain script first."
         }
 
         if (looksLikeHtmlOrSvgInput(trimmed)) {
@@ -379,7 +379,7 @@ $normalizedSvg
         val plainScenes = parsePlainTagalogText(trimmed, style)
         return DirectParseResult(
             scenes = plainScenes,
-            providerLabel = "Direct Tagalog Script",
+            providerLabel = "Direct Script",
             isJsonFormat = false
         )
     }
@@ -756,7 +756,7 @@ $normalizedSvg
     ): List<SceneScript> {
         val chunks = splitIntoBalancedScenes(rawText)
         require(chunks.isNotEmpty()) {
-            "Tagalog script has no speakable lines. Paste at least one Tagalog sentence."
+            "Script has no speakable lines. Paste at least one sentence."
         }
 
         val lockedGender = com.example.model.CharacterGender.MALE
@@ -998,7 +998,7 @@ $normalizedSvg
             .split(Regex("\\s+"))
             .filter { it.isNotBlank() }
             .take(6)
-        return words.joinToString(" ").ifBlank { "Direct Tagalog Story" }
+        return words.joinToString(" ").ifBlank { "Direct Story" }
     }
 
     fun estimatePreviewSummary(rawInput: String): String {
@@ -1030,7 +1030,7 @@ $normalizedSvg
         }
         val chunks = splitIntoBalancedScenes(trimmed)
         val words = countWords(trimmed)
-        return "Tagalog • ${chunks.size} scene(s) • $words words"
+        return "Script • ${chunks.size} scene(s) • $words words"
     }
 
     private fun extractFirstJsonStringValue(raw: String, keyName: String): String? {
@@ -1095,13 +1095,13 @@ $normalizedSvg
         }
         val lower = narration.lowercase()
         val extraPropCue = when {
-            listOf("pera", "sahod", "sweldo", "ipon", "gastos", "utang", "piso").any { lower.contains(it) } ->
+            listOf("pera", "sahod", "sweldo", "ipon", "gastos", "utang", "piso", "money", "salary", "save", "savings", "budget", "debt", "income").any { lower.contains(it) } ->
                 "subtle floating coins and clean finance motif accents"
-            listOf("tinda", "negosyo", "palengke", "benta", "kape").any { lower.contains(it) } ->
-                "cozy Philippine neighborhood store and sunlit street atmosphere"
-            listOf("trabaho", "opisina", "computer", "phone", "online").any { lower.contains(it) } ->
+            listOf("tinda", "negosyo", "palengke", "benta", "kape", "business", "store", "shop", "market", "coffee").any { lower.contains(it) } ->
+                "cozy neighborhood store and sunlit street atmosphere"
+            listOf("trabaho", "opisina", "computer", "phone", "online", "work", "office", "desk", "laptop").any { lower.contains(it) } ->
                 "clean contemporary workspace with ambient screen glow"
-            else -> "expressive Philippine everyday setting"
+            else -> "expressive animated storytelling setting"
         }
         return "${style.displayName} scene backdrop featuring $settingCue, $extraPropCue, $framingFlavor, $styleBase"
     }
@@ -1125,9 +1125,9 @@ $normalizedSvg
 
     private val EXPLICIT_CHARACTER_TOKENS = setOf(
         "lola", "lolo", "nanay", "tatay", "tindera", "tindero", "bata", "lalaki", "babae",
-        "kaibigan", "kuya", "ate", "boss", "doktor", "nurse", "teacher", "guro",
-        "driver", "farmer", "magsasaka", "manok", "aso", "pusa", "isda", "character",
-        "tao", "tauhan"
+        "kaibigan", "kuya", "ate", "boss", "doktor", "doctor", "nurse", "teacher", "guro",
+        "driver", "farmer", "magsasaka", "manok", "aso", "pusa", "cat", "rat", "isda",
+        "character", "tao", "tauhan", "person", "friend", "hero"
     )
 
     private fun containsWholeWordToken(text: String, tokens: Set<String>): Boolean {
@@ -1150,14 +1150,14 @@ $normalizedSvg
         style: AnimationStyle = AnimationStyle.ATMOSPHERIC_2D_STORY
     ): SceneContextCue {
         val lower = narration.lowercase()
-        val isFinance = listOf("pera", "sahod", "sweldo", "ipon", "piso", "yaman", "negosyo", "presyo").any { lower.contains(it) }
-        val isProblem = listOf("ubos", "kulang", "utang", "hirap", "mali", "sayang", "gastos", "problema", "bakit").any { lower.contains(it) }
-        val isSolution = listOf("sikreto", "diskarte", "subukan", "itabi", "solusyon", "gawin", "simulan", "tips").any { lower.contains(it) }
-        val isOffice = listOf("trabaho", "opisina", "bos", "laptop", "online", "bpo", "meeting").any { lower.contains(it) }
-        val isKitchen = listOf("kape", "umaga", "almusal", "lutuin", "kusina", "kain").any { lower.contains(it) }
-        val isMystery = listOf("gabi", "dilim", "takot", "sikreto", "multo", "nakakagulat", "madaling araw").any { lower.contains(it) }
+        val isFinance = listOf("pera", "sahod", "sweldo", "ipon", "piso", "yaman", "negosyo", "presyo", "money", "salary", "save", "savings", "budget", "income", "invest", "growth", "profit").any { lower.contains(it) }
+        val isProblem = listOf("ubos", "kulang", "utang", "hirap", "mali", "sayang", "gastos", "problema", "bakit", "broke", "debt", "problem", "mistake", "why", "fail", "loss").any { lower.contains(it) }
+        val isSolution = listOf("sikreto", "diskarte", "subukan", "itabi", "solusyon", "gawin", "simulan", "tips", "secret", "tip", "solution", "start", "focus", "habit").any { lower.contains(it) }
+        val isOffice = listOf("trabaho", "opisina", "bos", "laptop", "online", "bpo", "meeting", "work", "office", "career", "desk").any { lower.contains(it) }
+        val isKitchen = listOf("kape", "umaga", "almusal", "lutuin", "kusina", "kain", "coffee", "morning", "kitchen", "breakfast").any { lower.contains(it) }
+        val isMystery = listOf("gabi", "dilim", "takot", "sikreto", "multo", "nakakagulat", "madaling araw", "night", "dark", "scared", "mystery", "shock").any { lower.contains(it) }
         val isStorm = listOf("ulan", "bagyo", "kulog", "baha", "storm", "rain").any { lower.contains(it) }
-        val isEnergyOrSystem = listOf("solar", "kuryente", "battery", "watts", "tubig", "tangke", "pipe", "aquaponics", "filter", "pump", "sensor").any { lower.contains(it) }
+        val isEnergyOrSystem = listOf("solar", "kuryente", "battery", "watts", "tubig", "tangke", "pipe", "aquaponics", "filter", "pump", "sensor", "water", "power", "energy").any { lower.contains(it) }
 
         val theme = when {
             isMystery -> EnvironmentTheme.DRAMATIC_SUNSET_CITY
@@ -1310,7 +1310,7 @@ $normalizedSvg
                     ?: root.optJSONArray("data")
                 if (existingArr != null) {
                     existingArr
-                } else if (root.has("tagalog_narration")) {
+                } else if (root.has("tagalog_narration") || root.has("narration")) {
                     JSONArray().apply { put(root) }
                 } else {
                     return raw

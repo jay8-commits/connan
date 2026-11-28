@@ -42,27 +42,18 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MovieCreation
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueuePlayNext
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -78,7 +69,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,10 +97,8 @@ import com.example.model.AnimationStyle
 import com.example.model.HudWidget
 import com.example.model.PipelineStep
 import com.example.model.ProductionMode
-import com.example.model.ScriptSourceMode
 import com.example.model.ShotFraming
 import com.example.model.StatusPill
-import com.example.model.StoryNiche
 import com.example.model.VideoAspectRatio
 import com.example.model.WorldFx
 import android.annotation.SuppressLint
@@ -127,7 +115,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
-import com.example.render.MotionHtmlDirector
 import com.example.render.SceneCompositor
 import com.example.render.StudioRendererBridge
 import com.example.render.WebViewFrameRenderer
@@ -152,7 +139,6 @@ fun StudioScreen(
     val clipboardManager = LocalClipboardManager.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
-    val topic by viewModel.topic.collectAsStateWithLifecycle()
     val directScriptText by viewModel.directScriptText.collectAsStateWithLifecycle()
     val productionMode by viewModel.productionMode.collectAsStateWithLifecycle()
     val selectedStyle by viewModel.selectedStyle.collectAsStateWithLifecycle()
@@ -170,39 +156,12 @@ fun StudioScreen(
     val demoShotFraming by viewModel.demoShotFraming.collectAsStateWithLifecycle()
     val stagedRenderQueue by viewModel.stagedRenderQueue.collectAsStateWithLifecycle()
 
-    val scriptSourceMode = settings.effectiveScriptSourceMode
-    val selectedNiche = settings.selectedNiche
-    val activeTemplate = settings.activeTemplate
-    var showPromptEditor by remember { mutableStateOf(false) }
-    var templateDropdownOpen by remember { mutableStateOf(false) }
-    var editableTemplateName by remember(activeTemplate?.id) {
-        mutableStateOf(activeTemplate?.name.orEmpty())
-    }
-    var editableTemplateBody by remember(activeTemplate?.id, activeTemplate?.content) {
-        mutableStateOf(activeTemplate?.content.orEmpty())
-    }
     var voiceInput by remember(settings.selectedVoiceId) {
         mutableStateOf(settings.selectedVoiceId)
     }
     var voiceCatInput by remember(settings.secondaryVoiceId) {
         mutableStateOf(settings.secondaryVoiceId)
     }
-
-    LaunchedEffect(activeTemplate) {
-        if (activeTemplate != null) {
-            editableTemplateName = activeTemplate.name
-            editableTemplateBody = activeTemplate.content
-        }
-    }
-
-    val txtImporterLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-        onResult = { uri ->
-            if (uri != null) {
-                viewModel.importTxtPrompt(uri)
-            }
-        }
-    )
 
     val directScriptLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -250,40 +209,21 @@ fun StudioScreen(
             // Studio Header Banner
             StudioTopHeader(aspectRatio = aspectRatio)
 
-            // 3-Mode Script Source Selector (Direct Script / Custom LLM API / AI Horde)
-            ScriptSourceSelectorCard(
-                selectedMode = scriptSourceMode,
-                activeModelId = settings.effectiveSelectedModelId,
-                onSelectMode = { mode -> viewModel.setScriptSourceMode(mode) }
+            // Direct Storyboard / Script Input Card (Local Direct Script Workflow)
+            DirectScriptInputCard(
+                scriptText = directScriptText,
+                onScriptChange = { viewModel.updateDirectScriptText(it) },
+                onImportFile = {
+                    directScriptLauncher.launch(
+                        arrayOf("text/html", "image/svg+xml", "application/json", "text/plain", "*/*")
+                    )
+                },
+                onCopyTemplate = {
+                    clipboardManager.setText(AnnotatedString(DirectStoryboardParser.COPY_JSON_TEMPLATE))
+                    viewModel.notifyMessage("Copied JSON storyboard template to clipboard")
+                },
+                onClear = { viewModel.updateDirectScriptText("") }
             )
-
-            // Story Niche Selector (Multi-Niche GSAP Vector Studio)
-            NicheSelectorCard(
-                selectedNiche = selectedNiche,
-                onSelectNiche = { niche -> viewModel.selectNiche(niche) }
-            )
-
-            // Direct Storyboard / Script Input Card (Zero LLM API Timeout)
-            AnimatedVisibility(visible = scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT) {
-                DirectScriptInputCard(
-                    scriptText = directScriptText,
-                    onScriptChange = { viewModel.updateDirectScriptText(it) },
-                    onImportFile = {
-                        directScriptLauncher.launch(
-                            arrayOf("text/html", "image/svg+xml", "application/json", "text/plain", "*/*")
-                        )
-                    },
-                    onCopyTemplate = {
-                        clipboardManager.setText(AnnotatedString(DirectStoryboardParser.COPY_JSON_TEMPLATE))
-                        viewModel.notifyMessage("Copied JSON storyboard template to clipboard")
-                    },
-                    onCopyGodPrompt = {
-                        clipboardManager.setText(AnnotatedString(MotionHtmlDirector.MASTER_CONTENT_GOD_PROMPT_V2.trim()))
-                        viewModel.notifyMessage("Copied Master Content God Prompt v2 to clipboard")
-                    },
-                    onClear = { viewModel.updateDirectScriptText("") }
-                )
-            }
 
             // 0. THREE STUDIO PRO PRODUCTION MODES + CLIP AUTO-HUD PICKER
             ProductionModeSelectorCard(
@@ -298,325 +238,6 @@ fun StudioScreen(
                     onRemoveClip = { viewModel.removeImportedClip(it) },
                     onClearClips = { viewModel.clearImportedClips() }
                 )
-            }
-
-            // 1. MASTER PROMPT TEMPLATE BAR + .TXT IMPORTER + INLINE EDITOR (Hidden in Direct Script Mode)
-            AnimatedVisibility(visible = scriptSourceMode != ScriptSourceMode.DIRECT_SCRIPT) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = StudioSurface),
-                border = BorderStroke(1.dp, StudioOutline),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.Description,
-                                contentDescription = "Master prompt",
-                                tint = ForgeAmber,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Master System Prompt",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Surface(
-                            color = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) {
-                                ForgeCyan.copy(alpha = 0.16f)
-                            } else {
-                                ForgeMint.copy(alpha = 0.14f)
-                            },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) {
-                                    "JSON Studio Director"
-                                } else {
-                                    "JSON Schema Locked"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (scriptSourceMode == ScriptSourceMode.CUSTOM_LLM) ForgeCyan else ForgeMint,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-
-                    // Template selector dropdown + Import .txt + Edit Prompt
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { templateDropdownOpen = true }
-                                    .testTag("prompt_template_selector"),
-                                color = StudioSurfaceElevated,
-                                border = BorderStroke(1.dp, StudioOutline),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = activeTemplate?.name ?: "Select Template",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Rounded.KeyboardArrowDown,
-                                        contentDescription = "Choose prompt template",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            DropdownMenu(
-                                expanded = templateDropdownOpen,
-                                onDismissRequest = { templateDropdownOpen = false }
-                            ) {
-                                settings.promptTemplates.forEach { tpl ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = tpl.name,
-                                                    fontWeight = if (tpl.id == activeTemplate?.id) {
-                                                        FontWeight.Bold
-                                                    } else FontWeight.Normal
-                                                )
-                                                if (!tpl.isBuiltIn) {
-                                                    Text(
-                                                        text = ".TXT",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = ForgeCyan
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        onClick = {
-                                            viewModel.selectPromptTemplate(tpl.id)
-                                            templateDropdownOpen = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = { txtImporterLauncher.launch(arrayOf("text/plain")) },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                            border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.6f)),
-                            modifier = Modifier.testTag("import_txt_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.FileUpload,
-                                contentDescription = "Import .txt",
-                                tint = ForgeCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "Import .txt",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = ForgeCyan
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = { showPromptEditor = !showPromptEditor },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (showPromptEditor) ForgeCoral else StudioOutline
-                            ),
-                            modifier = Modifier.testTag("edit_prompt_toggle")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Edit,
-                                contentDescription = "Edit Prompt",
-                                tint = if (showPromptEditor) ForgeCoral else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Edit Prompt",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (showPromptEditor) ForgeCoral else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    // Expandable Inline System Prompt Editor
-                    AnimatedVisibility(visible = showPromptEditor && activeTemplate != null) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = editableTemplateName,
-                                onValueChange = { editableTemplateName = it },
-                                label = { Text("Template Name") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("prompt_name_input"),
-                                colors = studioTextFieldColors()
-                            )
-                            OutlinedTextField(
-                                value = editableTemplateBody,
-                                onValueChange = { editableTemplateBody = it },
-                                label = { Text("Creative Storytelling Instructions (Tagalog Tone / Rules)") },
-                                minLines = 5,
-                                maxLines = 10,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("prompt_body_input"),
-                                colors = studioTextFieldColors()
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(
-                                        onClick = {
-                                            activeTemplate?.let { tpl ->
-                                                if (tpl.isBuiltIn) {
-                                                    viewModel.resetPromptTemplate(tpl.id)
-                                                } else {
-                                                    editableTemplateName = tpl.name
-                                                    editableTemplateBody = tpl.content
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.testTag("reset_prompt_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Refresh,
-                                            contentDescription = "Reset",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Reset")
-                                    }
-                                    if (activeTemplate != null && !activeTemplate.isBuiltIn) {
-                                        TextButton(
-                                            onClick = { viewModel.deletePromptTemplate(activeTemplate.id) },
-                                            colors = ButtonDefaults.textButtonColors(
-                                                contentColor = MaterialTheme.colorScheme.error
-                                            ),
-                                            modifier = Modifier.testTag("delete_prompt_button")
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Delete,
-                                                contentDescription = "Delete",
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Delete")
-                                        }
-                                    }
-                                }
-
-                                Button(
-                                    onClick = {
-                                        activeTemplate?.let {
-                                            viewModel.savePromptTemplate(
-                                                it.id,
-                                                editableTemplateName,
-                                                editableTemplateBody
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.testTag("save_prompt_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Save,
-                                        contentDescription = "Save",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Save")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            }
-
-            // 2. TOPIC INPUT + RANDOM VIRAL TAGALOG IDEA (Hidden in Direct Script Mode)
-            AnimatedVisibility(visible = scriptSourceMode != ScriptSourceMode.DIRECT_SCRIPT) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = StudioSurface),
-                border = BorderStroke(1.dp, StudioOutline),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Story Topic / Hook",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    OutlinedTextField(
-                        value = topic,
-                        onValueChange = { viewModel.updateTopic(it) },
-                        placeholder = { Text("e.g. Bakit laging ubos ang sahod...") },
-                        minLines = 2,
-                        maxLines = 4,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("topic_input"),
-                        colors = studioTextFieldColors()
-                    )
-                    OutlinedButton(
-                        onClick = { viewModel.pickRandomIdea() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("random_idea_button"),
-                        border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.55f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Shuffle,
-                            contentDescription = "Random Idea",
-                            tint = ForgeAmber,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Random Viral Tagalog Idea",
-                            color = ForgeAmber,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
             }
 
             // 3. HORIZONTAL ANIMATION STYLE PRESET CARDS (4 Viral 2D & 2.5D Motion Presets)
@@ -820,7 +441,7 @@ fun StudioScreen(
                             voiceInput = clean
                             viewModel.selectVoiceId(clean)
                         },
-                        label = { Text("Primary Voice ID (Matalinong Daga — Narrator)") },
+                        label = { Text("Primary Voice ID (Narrator / Character 1)") },
                         singleLine = true,
                         leadingIcon = {
                             Icon(Icons.Rounded.GraphicEq, contentDescription = "Primary Voice ID")
@@ -837,7 +458,7 @@ fun StudioScreen(
                             voiceCatInput = clean
                             viewModel.setSecondaryVoiceId(clean)
                         },
-                        label = { Text("Secondary Voice ID (Si Pusa — Optional)") },
+                        label = { Text("Secondary Voice ID (Character 2 — Optional)") },
                         placeholder = { Text("Used when scene speaker == \"cat\"") },
                         singleLine = true,
                         leadingIcon = {
@@ -1019,9 +640,7 @@ fun StudioScreen(
                 viewModel = viewModel,
                 productionMode = productionMode,
                 selectedStyle = selectedStyle,
-                selectedNiche = selectedNiche,
                 aspectRatio = aspectRatio,
-                scriptSourceMode = scriptSourceMode,
                 directScriptText = directScriptText,
                 customSprites = previewCustomSprites,
                 previewPlaying = previewPlaying,
@@ -1101,273 +720,15 @@ private fun StudioTopHeader(aspectRatio: VideoAspectRatio) {
 }
 
 @Composable
-private fun ScriptSourceSelectorCard(
-    selectedMode: ScriptSourceMode,
-    activeModelId: String,
-    onSelectMode: (ScriptSourceMode) -> Unit
-) {
-    val activeAccent = when (selectedMode) {
-        ScriptSourceMode.DIRECT_SCRIPT -> ForgeMint
-        ScriptSourceMode.CUSTOM_LLM -> ForgeCyan
-        ScriptSourceMode.AI_HORDE -> ForgeAmber
-    }
-    val statusText = when (selectedMode) {
-        ScriptSourceMode.DIRECT_SCRIPT -> "Sureball Local • ElevenLabs TTS"
-        ScriptSourceMode.CUSTOM_LLM -> "${activeModelId.ifBlank { "Custom LLM" }} • ElevenLabs TTS"
-        ScriptSourceMode.AI_HORDE -> "aihorde.net • ElevenLabs TTS"
-    }
-
-    Surface(
-        color = StudioSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, activeAccent.copy(alpha = 0.45f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("studio_engine_toggle_pill")
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Script Source",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = activeAccent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val options = listOf(
-                    Triple(
-                        ScriptSourceMode.DIRECT_SCRIPT,
-                        Icons.Rounded.Code,
-                        Pair(ForgeMint, "studio_mode_direct_script")
-                    ),
-                    Triple(
-                        ScriptSourceMode.CUSTOM_LLM,
-                        Icons.Rounded.SmartToy,
-                        Pair(ForgeCyan, "studio_mode_custom_llm")
-                    ),
-                    Triple(
-                        ScriptSourceMode.AI_HORDE,
-                        Icons.Rounded.AutoAwesome,
-                        Pair(ForgeAmber, "studio_mode_ai_horde")
-                    )
-                )
-
-                options.forEach { (mode, icon, accentAndTag) ->
-                    val (accent, tag) = accentAndTag
-                    val isSelected = selectedMode == mode
-                    val subLabel = when (mode) {
-                        ScriptSourceMode.DIRECT_SCRIPT -> "No Timeout"
-                        ScriptSourceMode.CUSTOM_LLM -> "Dual-Attempt"
-                        ScriptSourceMode.AI_HORDE -> "aihorde.net"
-                    }
-                    Surface(
-                        color = if (isSelected) accent.copy(alpha = 0.18f) else StudioSurfaceElevated,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(
-                            width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) accent else StudioOutline
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 56.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelectMode(mode) }
-                            .testTag(tag)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = mode.title,
-                                    tint = if (isSelected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = mode.shortLabel,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) accent else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = subLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isSelected) accent.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NicheSelectorCard(
-    selectedNiche: StoryNiche,
-    onSelectNiche: (StoryNiche) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.45f)),
-        shape = MaterialTheme.shapes.large
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Story Niche & Rig Pack",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    color = ForgeAmber.copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = selectedNiche.seriesBadge,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ForgeAmber,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Surface(
-                    onClick = { expanded = true },
-                    color = StudioSurfaceElevated,
-                    border = BorderStroke(1.dp, StudioOutline),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .testTag("niche_selector_dropdown")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = selectedNiche.displayName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = selectedNiche.subtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Icon(
-                            imageVector = Icons.Rounded.KeyboardArrowDown,
-                            contentDescription = "Select story niche",
-                            tint = ForgeAmber
-                        )
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    StoryNiche.entries.forEach { niche ->
-                        val isSelected = niche == selectedNiche
-                        DropdownMenuItem(
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .testTag("niche_option_${niche.nicheKey}"),
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = niche.displayName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ForgeAmber else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = niche.subtitle,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            },
-                            onClick = {
-                                onSelectNiche(niche)
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun DirectScriptInputCard(
     scriptText: String,
     onScriptChange: (String) -> Unit,
     onImportFile: () -> Unit,
     onCopyTemplate: () -> Unit,
-    onCopyGodPrompt: () -> Unit,
     onClear: () -> Unit
 ) {
     val summary = remember(scriptText) {
-        if (scriptText.isBlank()) "Ready for JSON, HTML/SVG, or Tagalog" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
+        if (scriptText.isBlank()) "Ready for JSON, HTML/SVG, or Script" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
     }
 
     Card(
@@ -1419,40 +780,40 @@ private fun DirectScriptInputCard(
             }
 
             Text(
-                text = "Zero LLM/Horde network calls. Paste full scene JSON, raw HTML5/SVG animation code, or plain Tagalog text — renders directly to ElevenLabs TTS + 1080x1920 MP4.",
+                text = "Paste full scene JSON, raw HTML5/SVG animation code, or plain script in any language — renders directly with ElevenLabs TTS + MP4 export.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            OutlinedButton(
-                onClick = onImportFile,
-                border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .testTag("import_direct_script_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.FileUpload,
-                    contentDescription = "Import HTML, SVG, JSON, or TXT file",
-                    tint = ForgeCyan,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "Import HTML / SVG / JSON / TXT",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = ForgeCyan,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                OutlinedButton(
+                    onClick = onImportFile,
+                    border = BorderStroke(1.dp, ForgeCyan.copy(alpha = 0.65f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("import_direct_script_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FileUpload,
+                        contentDescription = "Import HTML, SVG, JSON, or TXT file",
+                        tint = ForgeCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Import HTML / JSON / TXT",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = ForgeCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
                 OutlinedButton(
                     onClick = onCopyTemplate,
                     border = BorderStroke(1.dp, ForgeMint.copy(alpha = 0.65f)),
@@ -1477,39 +838,14 @@ private fun DirectScriptInputCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                OutlinedButton(
-                    onClick = onCopyGodPrompt,
-                    border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.72f)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .testTag("copy_god_prompt_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = "Copy God Prompt",
-                        tint = ForgeAmber,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Copy God Prompt",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = ForgeAmber,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
 
             OutlinedTextField(
                 value = scriptText,
                 onValueChange = onScriptChange,
-                label = { Text("JSON, Raw HTML/SVG, or Plain Tagalog Text") },
+                label = { Text("JSON, Raw HTML/SVG, or Plain Script (Any Language)") },
                 placeholder = {
-                    Text("Paste {\"scenes\": [...]} JSON, <!DOCTYPE html>/<svg> bespoke animation code, OR plain Tagalog sentences...")
+                    Text("Paste {\"scenes\": [...]} JSON, <!DOCTYPE html>/<svg> bespoke animation code, OR plain script in English, Tagalog, or any language...")
                 },
                 minLines = 6,
                 maxLines = 12,
@@ -1827,9 +1163,7 @@ private fun LiveCanvasPreviewCard(
     viewModel: MainViewModel,
     productionMode: ProductionMode,
     selectedStyle: AnimationStyle,
-    selectedNiche: StoryNiche,
     aspectRatio: VideoAspectRatio,
-    scriptSourceMode: ScriptSourceMode,
     directScriptText: String,
     customSprites: Map<ActorRole, android.graphics.Bitmap>,
     previewPlaying: Boolean,
@@ -1843,7 +1177,7 @@ private fun LiveCanvasPreviewCard(
     demoShotFraming: ShotFraming
 ) {
     val activeScenes = remember(
-        generatedScenes, selectedStyle, selectedNiche, demoRole, demoAction, demoFx, demoPill, demoHudWidget, demoShotFraming
+        generatedScenes, selectedStyle, demoRole, demoAction, demoFx, demoPill, demoHudWidget, demoShotFraming
     ) {
         if (generatedScenes.isNotEmpty()) generatedScenes else viewModel.buildDemoPreviewScenes()
     }
@@ -1918,9 +1252,8 @@ private fun LiveCanvasPreviewCard(
                     }
                 } else {
                     val previewCtx = LocalContext.current
-                    val customDirectHtml = remember(generatedScenes, scriptSourceMode, directScriptText) {
+                    val customDirectHtml = remember(generatedScenes, directScriptText) {
                         if (generatedScenes.isEmpty() &&
-                            scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT &&
                             DirectStoryboardParser.looksLikeHtmlOrSvgInput(directScriptText)
                         ) {
                             DirectStoryboardParser.buildCustomHtmlDocumentIfNeeded(directScriptText)
@@ -1928,12 +1261,11 @@ private fun LiveCanvasPreviewCard(
                             null
                         }
                     }
-                    val previewHtml = remember(customDirectHtml, activeScenes, selectedNiche, totalDurMs, aspectRatio) {
+                    val previewHtml = remember(customDirectHtml, activeScenes, totalDurMs, aspectRatio) {
                         customDirectHtml ?: StudioRendererBridge.buildStudioHtmlDocument(
                             scenes = activeScenes,
-                            title = activeScenes.firstOrNull()?.scene?.episodeTitle?.ifBlank { selectedNiche.seriesBadge }
-                                ?: selectedNiche.seriesBadge,
-                            niche = selectedNiche,
+                            title = activeScenes.firstOrNull()?.scene?.episodeTitle?.ifBlank { "ToonForge Studio" }
+                                ?: "ToonForge Studio",
                             aspectRatio = aspectRatio,
                             context = previewCtx
                         )

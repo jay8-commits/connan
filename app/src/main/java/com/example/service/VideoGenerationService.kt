@@ -16,14 +16,9 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
-import com.example.art.AiHordeImageClient
 import com.example.data.SettingsDataStore
 import com.example.data.VideoGalleryRepository
-import com.example.llm.AiHordeDirectorClient
 import com.example.llm.DirectStoryboardParser
-import com.example.llm.LlmDirectorClient
-import com.example.llm.LlmScriptResult
-import com.example.llm.UniversalModelDetector
 import com.example.model.ActorRole
 import com.example.model.AnimationStyle
 import com.example.model.GenerationProgress
@@ -230,7 +225,7 @@ class VideoGenerationService : Service() {
         }
         return listOf(
             RenderBatchItem(
-                topic = effectiveTopic.ifBlank { "Direct Tagalog Story" },
+                topic = effectiveTopic.ifBlank { "Direct Story" },
                 style = effectiveStyle,
                 durationSec = durationSec,
                 voiceIdOverride = voiceId,
@@ -367,7 +362,7 @@ class VideoGenerationService : Service() {
                 }
 
                 val itemOutcome = runPipeline(
-                    topic = nextItem.topic.ifBlank { "Direct Tagalog Story" },
+                    topic = nextItem.topic.ifBlank { "Direct Story" },
                     style = nextItem.style,
                     durationSec = nextItem.durationSec,
                     voiceIdOverride = nextItem.voiceIdOverride,
@@ -492,45 +487,25 @@ class VideoGenerationService : Service() {
         try {
             val settingsStore = SettingsDataStore(applicationContext)
             val settings = settingsStore.getSnapshot()
-            val activeScriptMode = scriptSourceModeOverride ?: settings.effectiveScriptSourceMode
             val effectiveDirectScript = directScriptOverride.ifBlank { settings.directScriptText }.trim()
-            val effectiveVoiceId = voiceIdOverride
-                .replace("\r", "").replace("\n", "").trim()
+            val effectiveVoiceId = ElevenLabsClient.cleanCredential(voiceIdOverride)
                 .ifBlank { settings.effectiveVoiceId }
-            val effectiveSecondaryVoiceId = voiceIdCatOverride
-                .replace("\r", "").replace("\n", "").trim()
+            val effectiveSecondaryVoiceId = ElevenLabsClient.cleanCredential(voiceIdCatOverride)
                 .ifBlank { settings.effectiveSecondaryVoiceId }
             val videoWidth = aspectRatio.width
             val videoHeight = aspectRatio.height
-            val resolvedLlmModel = settings.effectiveSelectedModelId.ifBlank {
-                UniversalModelDetector.matchPresetForUrl(settings.effectiveLlmBaseUrl).defaultModelHint
-            }
             val missingCreds = buildList {
-                when (activeScriptMode) {
-                    ScriptSourceMode.DIRECT_SCRIPT -> {
-                        if (effectiveDirectScript.isBlank()) {
-                            add("Direct Storyboard / Tagalog Script")
-                        }
-                    }
-                    ScriptSourceMode.CUSTOM_LLM -> {
-                        if (settings.effectiveLlmBaseUrl.isBlank()) add("LLM Base URL")
-                        if (settings.effectiveLlmApiKey.isBlank()) add("LLM API Key")
-                        if (resolvedLlmModel.isBlank()) add("LLM Model ID")
-                    }
-                    ScriptSourceMode.AI_HORDE -> {
-                        // AI Horde uses configured key or anonymous key "0000000000"
-                    }
+                if (effectiveDirectScript.isBlank()) {
+                    add("Direct Script / Storyboard")
                 }
-                if (settings.elevenLabsKeys.none { it.key.replace("\r", "").replace("\n", "").trim().isNotEmpty() }) {
+                if (settings.elevenLabsKeys.none { ElevenLabsClient.cleanCredential(it.key).isNotEmpty() }) {
                     add("ElevenLabs API Key")
                 }
                 if (effectiveVoiceId.isBlank()) add("ElevenLabs Voice ID")
             }
             if (missingCreds.isNotEmpty()) {
-                val errMsg = if (activeScriptMode == ScriptSourceMode.DIRECT_SCRIPT &&
-                    missingCreds.contains("Direct Storyboard / Tagalog Script")
-                ) {
-                    "Direct Script input is empty. Paste JSON or plain Tagalog text in the Studio tab."
+                val errMsg = if (missingCreds.contains("Direct Script / Storyboard")) {
+                    "Direct Script input is empty. Paste JSON, HTML/SVG, or plain script in the Studio tab."
                 } else {
                     "Missing required credentials (${missingCreds.joinToString(", ")}). Please configure them in API & Settings."
                 }
@@ -576,59 +551,21 @@ class VideoGenerationService : Service() {
                 updateNotification(prefixedMsg, (overall * 100).toInt().coerceIn(0, 100))
             }
 
-            // STEP 1: SCRIPT GENERATION (Strict 3-mode routing — Direct Script / Custom LLM / AI Horde)
-            val initialScriptMsg = when (activeScriptMode) {
-                ScriptSourceMode.DIRECT_SCRIPT -> "Parsing Direct Script locally (zero LLM call)..."
-                ScriptSourceMode.AI_HORDE -> "Submitting Tagalog script to AI Horde queue..."
-                ScriptSourceMode.CUSTOM_LLM -> "Directing Tagalog story script..."
-            }
-            publish(PipelineStep.SCRIPT, 0.1f, 0.05f, initialScriptMsg)
-            val scriptResult = when (activeScriptMode) {
-                ScriptSourceMode.DIRECT_SCRIPT -> {
-                    val parsed = DirectStoryboardParser.parse(
-                        rawInput = effectiveDirectScript,
-                        style = style
-                    )
-                    LlmScriptResult(
-                        scenes = parsed.scenes,
-                        providerUsed = parsed.providerLabel,
-                        customHtmlDocument = parsed.customHtmlDocument
-                    )
-                }
-                ScriptSourceMode.AI_HORDE -> {
-                    AiHordeDirectorClient().generateStoryScript(
-                        topic = topic,
-                        durationSeconds = durationSec,
-                        style = style,
-                        settings = settings,
-                        onStatus = { status ->
-                            publish(PipelineStep.SCRIPT, 0.5f, 0.12f, status)
-                        }
-                    )
-                }
-                ScriptSourceMode.CUSTOM_LLM -> {
-                    LlmDirectorClient().generateStoryScript(
-                        topic = topic,
-                        durationSeconds = durationSec,
-                        style = style,
-                        settings = settings,
-                        niche = niche,
-                        aspectRatio = aspectRatio,
-                        onStatus = { status ->
-                            publish(PipelineStep.SCRIPT, 0.5f, 0.12f, status)
-                        }
-                    )
-                }
-            }
-            val directCustomHtmlDoc: String? = scriptResult.customHtmlDocument
-            val scenes = scriptResult.scenes
+            // STEP 1: PARSE DIRECT SCRIPT (JSON / HTML / SVG / Plain Text)
+            publish(PipelineStep.SCRIPT, 0.1f, 0.05f, "Parsing Direct Script...")
+            val parsedScript = DirectStoryboardParser.parse(
+                rawInput = effectiveDirectScript,
+                style = style
+            )
+            val directCustomHtmlDoc: String? = parsedScript.customHtmlDocument
+            val scenes = parsedScript.scenes
             publish(
                 PipelineStep.SCRIPT,
                 1.0f,
                 0.20f,
-                "Script ready (${scenes.size} scenes) via ${scriptResult.providerUsed}",
+                "Script ready (${scenes.size} scenes) via ${parsedScript.providerLabel}",
                 sceneCount = scenes.size,
-                providerInfo = scriptResult.providerUsed
+                providerInfo = parsedScript.providerLabel
             )
 
             // STEP 2: ELEVENLABS TTS + SAMPLE-ACCURATE PCM STITCHING
@@ -643,7 +580,7 @@ class VideoGenerationService : Service() {
                     PipelineStep.AUDIO,
                     frac * 0.85f,
                     0.20f + frac * 0.22f,
-                    "Synthesizing Tagalog voiceover (${idx + 1}/${scenes.size})...",
+                    "Synthesizing voiceover (${idx + 1}/${scenes.size})...",
                     sceneIdx = idx + 1,
                     sceneCount = scenes.size
                 )
@@ -786,7 +723,7 @@ class VideoGenerationService : Service() {
                     PipelineStep.ART,
                     0.95f,
                     0.60f,
-                    "Prepared ${scenes.size} GSAP 2.5D Vector Studio scenes (${niche.displayName})...",
+                    "Prepared ${scenes.size} GSAP 2.5D Vector Studio scenes...",
                     sceneIdx = scenes.size,
                     sceneCount = scenes.size
                 )
@@ -836,7 +773,7 @@ class VideoGenerationService : Service() {
                     if (directCustomHtmlDoc != null) {
                         "Booting ${videoWidth}x${videoHeight} WebView for Custom HTML/SVG Storyboard..."
                     } else {
-                        "Booting ${videoWidth}x${videoHeight} Offline GSAP Studio Engine (${niche.displayName})..."
+                        "Booting ${videoWidth}x${videoHeight} Offline GSAP Studio Engine..."
                     }
                 )
                 val htmlDoc = directCustomHtmlDoc ?: StudioRendererBridge.buildStudioHtmlDocument(

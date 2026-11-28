@@ -236,7 +236,7 @@ fun ClipAutoEditorPickerCard(
             }
 
             Text(
-                text = "Select multiple .mp4 clips or .jpg/.png photos. Clips are center-cropped to 1080x1920, looped automatically, and layered with Tagalog voiceover, GOAL/PROBLEM/FIX pills, HUD gauges & karaoke captions.",
+                text = "Select multiple .mp4 clips or .jpg/.png photos. Clips are center-cropped to the active aspect ratio, looped automatically, and layered with voiceover, GOAL/PROBLEM/FIX pills, HUD gauges & karaoke captions.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -674,13 +674,13 @@ fun PronunciationDictionaryCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Rounded.RecordVoiceOver,
-                        contentDescription = "Tagalog Pronunciation Dictionary",
+                        contentDescription = "TTS Pronunciation Dictionary",
                         tint = ForgeCyan,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Tagalog TTS Pronunciation Dictionary",
+                        text = "TTS Pronunciation Dictionary",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )

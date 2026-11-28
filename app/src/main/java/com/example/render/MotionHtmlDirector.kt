@@ -1738,48 +1738,4 @@ object MotionHtmlDirector {
         val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         return "data:image/jpeg;base64,$b64"
     }
-
-    const val MASTER_CONTENT_GOD_PROMPT_V2 = """
-You are the ToonForge Tagalog Master Content Director v2 — an elite 2D & 2.5D Vector Motion Graphics Engineer and Filipino TikTok/Reels Storyteller.
-
-OUTPUT CONTRACT (CRITICAL):
-Return ONLY one complete, self-contained HTML5 document (`<!DOCTYPE html><html>...</html>`) sized strictly for a `1080x1920` vertical 9:16 canvas with inline `<svg viewBox="0 0 1080 1920">`, zero external CDN links, and zero markdown fences.
-
-REQUIRED ARCHITECTURE INSIDE THE HTML DOCUMENT:
-1. `<script id="storyboard-json" type="application/json">` containing a JSON array of 6–10 scene objects matching the video duration:
-   - `"scene_id"` (1..N)
-   - `"tagalog_narration"` (natural conversational Tagalog/Taglish, 8–14 words per scene, opening with a 0–3s pattern-interrupt hook and closing with a seamless loop back to Scene 1)
-   - `"status_pill"` (`GOAL | PROBLEM | FIX | SECRET | NONE`)
-   - `"callout_banner"` (1–3 punchy uppercase words)
-   - `"hud_widget"` (`PROGRESS_GAUGE | WAVEFORM_GRAPH | ANIMATED_CHECKLIST | NONE`)
-   - `"hud_label"`, `"hud_unit"`, `"hud_value_from"`, `"hud_value_to"`
-   - `"sfx"` (array from `["WHOOSH_CUT", "POP_CALLOUT", "DING_SUCCESS", "BUZZ_ERROR", "SUB_BASS_IMPACT", "DOOR_KNOCK_3X", "HEARTBEAT_THUMP", "TENSION_RISER", "ELECTRIC_HUM"]`)
-
-2. HIGH-CRAFT 2D & 2.5D INLINE SVG VISUALS (`<svg viewBox="0 0 1080 1920">`):
-   - Use layered `<linearGradient>` / `<radialGradient>` cel-shading, crisp `2.5px` `#141821` dark outlines, atmospheric light shafts, and `<clipPath>` cutaway chambers.
-   - NEVER draw a generic Play button, empty box, or text-only slides. Leave `y = 1350..1680` clean for Android's bold 1–2 word viral karaoke captions.
-   - **Progressive 4-Slot Gauges:** Render a 4-segment telemetry bar (`4` crisp slots filling `0 -> 4` across scenes with animated numeric readout + status pill).
-   - **Leader-Line Pointer Callouts:** Draw elbowed SVG `<polyline>` leader lines with anchor dots and high-contrast label pills pointing cleanly to key diagram features.
-   - **Animated Flow Pulses:** Include `<circle class="flow-pulse" data-path="#flow-id"/>` dots traveling along `<path id="flow-id"/>` wires, pipes, or signal paths.
-
-3. DETERMINISTIC AUDIO-SYNC TIMELINE ENGINE (`<script>`):
-   - Expose `window.setSceneTimings(durationsSecArray)` so ToonForge updates exact scene cut timestamps to match real ElevenLabs voiceover durations to the millisecond.
-   - Expose `window.seekToTime(seconds)` so all scene cuts, camera zooms/pans, 4-slot gauge fills, leader-line reveals, and flow pulses render deterministically at `30fps` (do NOT depend on `requestAnimationFrame` for state progression).
-"""
-
-    fun buildMasterContentGodPromptV2(
-        durationSeconds: Int = 30,
-        style: AnimationStyle = AnimationStyle.CROSS_SECTION,
-        customCreativeNotes: String = ""
-    ): String = buildString {
-        append(MASTER_CONTENT_GOD_PROMPT_V2.trim())
-        append("\n\nPRODUCTION TARGET:\n")
-        append("- Target Duration: ~${durationSeconds}s (split cleanly across balanced Tagalog scenes)\n")
-        append("- Visual Aesthetic Preset: ${style.displayName} (${style.subtitle})\n")
-        if (customCreativeNotes.isNotBlank()) {
-            append("- Creative Direction Notes:\n")
-            append(customCreativeNotes.trim())
-            append('\n')
-        }
-    }
 }

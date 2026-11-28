@@ -173,7 +173,7 @@ object JsonSanitizer {
         val candidates = collectAllArrayCandidates(spaces)
         if (candidates.isEmpty()) {
             throw MalformedSceneJsonException(
-                "No JSON array brackets found. Raw LLM output: ${rawOutput.take(220)}"
+                "No JSON array brackets found. Input snippet: ${rawOutput.take(220)}"
             )
         }
 
@@ -184,7 +184,7 @@ object JsonSanitizer {
             ?: candidates.firstOrNull { it.isPreferredWrapper && isObjectArrayText(it.slice) }
             ?: candidates.firstOrNull { isObjectArrayText(it.slice) }
             ?: throw MalformedSceneJsonException(
-                "No JSON array of scene objects found. Raw LLM output: ${rawOutput.take(220)}"
+                "No JSON array of scene objects found. Input snippet: ${rawOutput.take(220)}"
             )
 
         return best.slice
@@ -414,7 +414,7 @@ object JsonSanitizer {
 
             if (orderedSlices.isEmpty()) {
                 throw MalformedSceneJsonException(
-                    "No JSON array brackets found. Raw LLM output: ${rawOutput.take(220)}"
+                    "No JSON array brackets found. Input snippet: ${rawOutput.take(220)}"
                 )
             }
 
@@ -448,7 +448,7 @@ object JsonSanitizer {
         }
 
         val array = selectedArray ?: throw MalformedSceneJsonException(
-            "No valid JSONArray of scene objects found (${lastSyntaxError?.message ?: "non-scene elements"}). Raw LLM output: ${rawOutput.take(220)}",
+            "No valid JSONArray of scene objects found (${lastSyntaxError?.message ?: "non-scene elements"}). Input snippet: ${rawOutput.take(220)}",
             lastSyntaxError
         )
 

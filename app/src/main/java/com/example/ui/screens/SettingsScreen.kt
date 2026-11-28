@@ -18,30 +18,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
@@ -55,21 +43,16 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,19 +64,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.BuiltInPrompts
-import com.example.llm.DetectedModel
-import com.example.llm.LlmProviderPreset
-import com.example.llm.UniversalModelDetector
-import com.example.model.ScriptSourceMode
 import com.example.tts.DetectedVoice
 import com.example.tts.ElevenLabsClient
 import com.example.ui.theme.ForgeAmber
@@ -104,7 +81,6 @@ import com.example.ui.theme.ForgeMint
 import com.example.ui.theme.StudioOutline
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioSurfaceHighlight
 import com.example.ui.viewmodel.DetectionBannerState
 import com.example.ui.viewmodel.MainViewModel
 import java.util.Locale
@@ -130,19 +106,9 @@ fun SettingsScreen(
     val previewCustomSprites by viewModel.previewCustomSprites.collectAsStateWithLifecycle()
     val isCheckingCredits by viewModel.isCheckingCredits.collectAsStateWithLifecycle()
 
-    val detectedModels by viewModel.detectedModels.collectAsStateWithLifecycle()
-    val isDetectingModels by viewModel.isDetectingModels.collectAsStateWithLifecycle()
-    val modelDetectionBanner by viewModel.modelDetectionBanner.collectAsStateWithLifecycle()
-    val showAllRawModels by viewModel.showAllRawModels.collectAsStateWithLifecycle()
-    val isModelSheetVisible by viewModel.isModelSheetVisible.collectAsStateWithLifecycle()
-    val isPingingModel by viewModel.isPingingModel.collectAsStateWithLifecycle()
-    val modelPingBanner by viewModel.modelPingBanner.collectAsStateWithLifecycle()
-
     val detectedVoices by viewModel.detectedVoices.collectAsStateWithLifecycle()
     val isDetectingVoices by viewModel.isDetectingVoices.collectAsStateWithLifecycle()
     val voiceDetectionBanner by viewModel.voiceDetectionBanner.collectAsStateWithLifecycle()
-
-    val clipboardManager = LocalClipboardManager.current
 
     fun cleanInput(raw: String): String =
         raw.replace("\r", "").replace("\n", "").trim()
@@ -155,18 +121,6 @@ fun SettingsScreen(
     var voiceIdInput by remember { mutableStateOf(settings.effectiveVoiceId) }
     var secondaryVoiceIdInput by remember { mutableStateOf(settings.effectiveSecondaryVoiceId) }
     var voiceDropdownExpanded by remember { mutableStateOf(false) }
-
-    var llmBaseUrl by remember { mutableStateOf(settings.effectiveLlmBaseUrl) }
-    var llmApiKey by remember { mutableStateOf(settings.effectiveLlmApiKey) }
-    var showLlmApiKey by remember { mutableStateOf(false) }
-    var selectedModelId by remember { mutableStateOf(settings.effectiveSelectedModelId) }
-    var selectedPreset by remember {
-        mutableStateOf(UniversalModelDetector.matchPresetForUrl(settings.effectiveLlmBaseUrl))
-    }
-
-    var useAiHorde by remember { mutableStateOf(settings.useAiHorde) }
-    var scriptSourceMode by remember { mutableStateOf(settings.effectiveScriptSourceMode) }
-    var aiHordeKey by remember { mutableStateOf(if (settings.aiHordeKey == "0000000000") "" else settings.aiHordeKey) }
     var narrationSpeed by remember { mutableFloatStateOf(settings.narrationSpeed) }
 
     LaunchedEffect(settings) {
@@ -174,32 +128,7 @@ fun SettingsScreen(
         ttsModelId = settings.effectiveTtsModelId
         voiceIdInput = settings.effectiveVoiceId
         secondaryVoiceIdInput = settings.effectiveSecondaryVoiceId
-        llmBaseUrl = settings.effectiveLlmBaseUrl
-        llmApiKey = settings.effectiveLlmApiKey
-        selectedModelId = settings.effectiveSelectedModelId
-        selectedPreset = UniversalModelDetector.matchPresetForUrl(settings.effectiveLlmBaseUrl)
-        useAiHorde = settings.useAiHorde
-        scriptSourceMode = settings.effectiveScriptSourceMode
-        aiHordeKey = if (settings.aiHordeKey == "0000000000") "" else settings.aiHordeKey
         narrationSpeed = settings.narrationSpeed
-    }
-
-    fun applyLlmKeyChange(rawNewKey: String) {
-        val cleanKey = cleanInput(rawNewKey)
-        llmApiKey = cleanKey
-        val inferredUrl = UniversalModelDetector.inferBaseUrlFromApiKey(cleanKey)
-        if (inferredUrl != null && UniversalModelDetector.isDefaultOrEmptyBaseUrl(llmBaseUrl)) {
-            llmBaseUrl = inferredUrl
-            selectedPreset = UniversalModelDetector.matchPresetForUrl(inferredUrl)
-            if (selectedModelId.isBlank() && selectedPreset.defaultModelHint.isNotBlank()) {
-                selectedModelId = selectedPreset.defaultModelHint
-            }
-        }
-        viewModel.updateLlmConfigImmediate(
-            baseUrl = llmBaseUrl,
-            apiKey = llmApiKey,
-            modelId = selectedModelId
-        )
     }
 
     Column(
@@ -222,554 +151,13 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Universal third-party LLM & ElevenLabs proxy setup with automatic model & voice detection",
+                    text = "ElevenLabs TTS proxy, dual voices, custom sprites, BGM, and pronunciation rules",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            // 0. EXPLICIT SCRIPT & ART ENGINE SWITCH (Direct Script / Custom LLM API / AI Horde)
-            val engineAccent = when (scriptSourceMode) {
-                ScriptSourceMode.DIRECT_SCRIPT -> ForgeMint
-                ScriptSourceMode.AI_HORDE -> ForgeAmber
-                ScriptSourceMode.CUSTOM_LLM -> ForgeCyan
-            }
-            Card(
-                colors = CardDefaults.cardColors(containerColor = StudioSurfaceElevated),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = engineAccent.copy(alpha = 0.65f)
-                ),
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.testTag("engine_switch_card")
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = null,
-                                tint = engineAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "Script & Art Engine Switch",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Surface(
-                            color = engineAccent.copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = when (scriptSourceMode) {
-                                    ScriptSourceMode.DIRECT_SCRIPT -> "Direct Script (Local)"
-                                    ScriptSourceMode.AI_HORDE -> "AI Horde (aihorde.net)"
-                                    ScriptSourceMode.CUSTOM_LLM -> "Custom LLM API"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = engineAccent,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp)
-                        ) {
-                            Text(
-                                text = "Use AI Horde Mode",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = when (scriptSourceMode) {
-                                    ScriptSourceMode.DIRECT_SCRIPT ->
-                                        "Direct Script Mode is selected in the Studio tab (zero LLM/Horde script network calls)."
-                                    ScriptSourceMode.AI_HORDE ->
-                                        "Script & scene art route directly to aihorde.net async queue (with DoH DNS fallback). No silent LLM fallback."
-                                    ScriptSourceMode.CUSTOM_LLM ->
-                                        "Uses ONLY your configured OpenAI-compatible LLM API below (Dual-Attempt SSE + fallback)."
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = useAiHorde,
-                            onCheckedChange = { checked ->
-                                useAiHorde = checked
-                                scriptSourceMode = if (checked) ScriptSourceMode.AI_HORDE else ScriptSourceMode.CUSTOM_LLM
-                                viewModel.setUseAiHorde(checked)
-                            },
-                            modifier = Modifier.testTag("use_ai_horde_switch")
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = aiHordeKey,
-                        onValueChange = { raw ->
-                            val clean = cleanInput(raw)
-                            aiHordeKey = clean
-                            viewModel.setAiHordeKey(clean)
-                        },
-                        label = { Text("AI Horde API Key (Optional • Default: 0000000000)") },
-                        placeholder = { Text("0000000000") },
-                        supportingText = {
-                            Text("Blank automatically uses anonymous key 0000000000 • ElevenLabs TTS remains active in both modes")
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("aihorde_api_key_input"),
-                        colors = studioTextFieldColors()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp)
-                        ) {
-                            Text(
-                                text = "Optional AI Background Art",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = if (settings.enableAiBackgroundArt) {
-                                    "Enabled: fetches empty-stage backdrops (NO people/characters) behind vector actors."
-                                } else {
-                                    "Off (Default): renders crisp multi-layer 2D/2.5D vector SVG scenery with zero background artifacts."
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.enableAiBackgroundArt,
-                            onCheckedChange = { checked ->
-                                viewModel.setEnableAiBackgroundArt(checked)
-                            },
-                            modifier = Modifier.testTag("enable_ai_background_art_switch")
-                        )
-                    }
-                }
-            }
-
-            // 1. UNIVERSAL LLM STORY DIRECTOR & AUTO-DETECTOR
-            Card(
-                colors = CardDefaults.cardColors(containerColor = StudioSurface),
-                border = BorderStroke(1.dp, StudioOutline),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.SmartToy,
-                                contentDescription = null,
-                                tint = ForgeCyan,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "Custom LLM Story Director",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Surface(
-                            color = (if (useAiHorde) ForgeAmber else ForgeCyan).copy(alpha = 0.14f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = if (useAiHorde) "Paused (AI Horde On)" else selectedPreset.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (useAiHorde) ForgeAmber else ForgeCyan,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-
-                    if (useAiHorde) {
-                        Surface(
-                            color = ForgeAmber.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, ForgeAmber.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "AI Horde Mode is active above. Custom LLM settings below are saved for when you switch back to Custom LLM API.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ForgeAmber,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Quick Provider Presets",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        LlmProviderPreset.entries.forEach { preset ->
-                            val isSelected = selectedPreset == preset
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    selectedPreset = preset
-                                    viewModel.clearLlmDetectionState()
-                                    if (preset == LlmProviderPreset.CUSTOM) {
-                                        if (UniversalModelDetector.isDefaultOrEmptyBaseUrl(llmBaseUrl)) {
-                                            llmBaseUrl = ""
-                                        }
-                                    } else {
-                                        llmBaseUrl = preset.baseUrl
-                                        if (preset.defaultModelHint.isNotBlank() &&
-                                            (selectedModelId.isBlank() ||
-                                                LlmProviderPreset.entries.any { it.defaultModelHint == selectedModelId })
-                                        ) {
-                                            selectedModelId = preset.defaultModelHint
-                                        }
-                                    }
-                                    viewModel.updateLlmConfigImmediate(
-                                        baseUrl = llmBaseUrl,
-                                        apiKey = llmApiKey,
-                                        modelId = selectedModelId
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = preset.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = ForgeCyan.copy(alpha = 0.20f),
-                                    selectedLabelColor = ForgeCyan
-                                ),
-                                modifier = Modifier.testTag("preset_chip_${preset.name}")
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = llmBaseUrl,
-                        onValueChange = { raw ->
-                            val clean = cleanInput(raw)
-                            llmBaseUrl = clean
-                            selectedPreset = UniversalModelDetector.matchPresetForUrl(clean)
-                            viewModel.updateLlmConfigImmediate(
-                                baseUrl = clean,
-                                apiKey = llmApiKey,
-                                modelId = selectedModelId
-                            )
-                        },
-                        label = { Text("LLM Base URL") },
-                        placeholder = { Text("https://api.deepseek.com") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("llm_base_url_input"),
-                        colors = studioTextFieldColors()
-                    )
-
-                    OutlinedTextField(
-                        value = llmApiKey,
-                        onValueChange = { applyLlmKeyChange(it) },
-                        label = { Text("LLM API Key (auto-detects AIza / gsk_ / sk-or-)") },
-                        placeholder = { Text("Paste your DeepSeek, Gemini, Groq, OpenRouter, or Proxy API key") },
-                        singleLine = true,
-                        visualTransformation = if (showLlmApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { showLlmApiKey = !showLlmApiKey },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .testTag("toggle_llm_key_visibility")
-                                ) {
-                                    Icon(
-                                        imageVector = if (showLlmApiKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                        contentDescription = if (showLlmApiKey) "Hide API Key" else "Show API Key"
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        val pasted = clipboardManager.getText()?.text.orEmpty().trim()
-                                        if (pasted.isNotEmpty()) {
-                                            applyLlmKeyChange(pasted)
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .testTag("paste_llm_key_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ContentPaste,
-                                        contentDescription = "Paste API Key"
-                                    )
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("llm_api_key_input"),
-                        colors = studioTextFieldColors()
-                    )
-
-                    // Detect Available Models CTA + Raw Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(
-                            onClick = {
-                                viewModel.detectAvailableModels(
-                                    baseUrl = llmBaseUrl,
-                                    apiKey = llmApiKey,
-                                    showAllRaw = showAllRawModels,
-                                    openSheetOnSuccess = true
-                                )
-                            },
-                            enabled = !isDetectingModels,
-                            colors = ButtonDefaults.buttonColors(containerColor = ForgeCyan),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .testTag("detect_models_button")
-                        ) {
-                            if (isDetectingModels) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.Black
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "Detecting...",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Radar,
-                                    contentDescription = "Detect Available Models",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Detect Available Models",
-                                    color = Color.Black,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Show all raw models",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = "Include whisper, tts, embedding & image models",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = showAllRawModels,
-                            onCheckedChange = { checked ->
-                                viewModel.setShowAllRawModels(
-                                    showAll = checked,
-                                    baseUrl = llmBaseUrl,
-                                    apiKey = llmApiKey
-                                )
-                            },
-                            modifier = Modifier.testTag("show_raw_models_switch")
-                        )
-                    }
-
-                    modelDetectionBanner?.let { banner ->
-                        DetectionStatusBanner(
-                            state = banner,
-                            modifier = Modifier.testTag("model_detection_banner")
-                        )
-                    }
-
-                    // Selected Model ID + Picker trigger + Ping Test button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = selectedModelId,
-                            onValueChange = { raw ->
-                                val clean = cleanInput(raw)
-                                selectedModelId = clean
-                                viewModel.updateLlmConfigImmediate(
-                                    baseUrl = llmBaseUrl,
-                                    apiKey = llmApiKey,
-                                    modelId = clean
-                                )
-                            },
-                            label = { Text("Selected Model ID") },
-                            placeholder = { Text("e.g. deepseek-chat or gemini-2.5-flash") },
-                            singleLine = true,
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        if (detectedModels.isNotEmpty()) {
-                                            viewModel.openModelPickerSheet()
-                                        } else {
-                                            viewModel.detectAvailableModels(
-                                                baseUrl = llmBaseUrl,
-                                                apiKey = llmApiKey,
-                                                showAllRaw = showAllRawModels,
-                                                openSheetOnSuccess = true
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .testTag("open_model_picker_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ArrowDropDown,
-                                        contentDescription = "Choose detected model"
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("selected_model_input"),
-                            colors = studioTextFieldColors()
-                        )
-
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.pingSelectedModel(
-                                    baseUrl = llmBaseUrl,
-                                    apiKey = llmApiKey,
-                                    modelId = selectedModelId
-                                )
-                            },
-                            enabled = !isPingingModel,
-                            border = BorderStroke(1.dp, ForgeMint.copy(alpha = 0.7f)),
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            modifier = Modifier
-                                .height(54.dp)
-                                .testTag("test_model_ping_button")
-                        ) {
-                            if (isPingingModel) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = ForgeMint
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.Bolt,
-                                    contentDescription = "Test Model Ping",
-                                    tint = ForgeMint,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "Ping",
-                                    color = ForgeMint,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    modelPingBanner?.let { ping ->
-                        DetectionStatusBanner(
-                            state = ping,
-                            modifier = Modifier.testTag("model_ping_banner")
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            viewModel.saveLlmSettings(
-                                llmBaseUrl = llmBaseUrl,
-                                llmApiKey = llmApiKey,
-                                selectedModelId = selectedModelId,
-                                ttsBaseUrl = ttsBaseUrl,
-                                ttsModelId = ttsModelId,
-                                selectedVoiceId = voiceIdInput,
-                                secondaryVoiceId = secondaryVoiceIdInput,
-                                aiHordeKey = aiHordeKey.ifBlank { "0000000000" },
-                                narrationSpeed = narrationSpeed,
-                                useAiHorde = if (scriptSourceMode == ScriptSourceMode.DIRECT_SCRIPT) null else useAiHorde
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("save_settings_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = ForgeCoral)
-                    ) {
-                        Icon(Icons.Rounded.Save, contentDescription = "Save Settings")
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save API & Studio Settings", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            // 2. ELEVENLABS / THIRD-PARTY TTS PROXY & VOICE AUTO-DETECTOR
+            // 1. ELEVENLABS / THIRD-PARTY TTS PROXY & VOICE AUTO-DETECTOR
             Card(
                 colors = CardDefaults.cardColors(containerColor = StudioSurface),
                 border = BorderStroke(1.dp, StudioOutline),
@@ -1128,7 +516,7 @@ fun SettingsScreen(
                                 voiceIdInput = clean
                                 viewModel.selectVoiceId(clean)
                             },
-                            label = { Text("Primary Voice ID (Matalinong Daga)") },
+                            label = { Text("Primary Voice ID (Narrator)") },
                             placeholder = { Text("N2IVS1w4EtoT3dr4eOWO") },
                             singleLine = true,
                             modifier = Modifier
@@ -1160,7 +548,7 @@ fun SettingsScreen(
                             secondaryVoiceIdInput = clean
                             viewModel.setSecondaryVoiceId(clean)
                         },
-                        label = { Text("Secondary Voice ID (Character 2: Si Pusa — Optional)") },
+                        label = { Text("Secondary Voice ID (Character 2 — Optional)") },
                         placeholder = { Text("Optional Voice ID used when scene.speaker == \"cat\"") },
                         singleLine = true,
                         modifier = Modifier
@@ -1176,7 +564,7 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "No ElevenLabs keys added yet. Add a key above for studio-grade Tagalog voiceover with word-level alignment.",
+                                text = "No ElevenLabs keys added yet. Add a key above for voice synthesis with word-level alignment.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(10.dp)
@@ -1325,10 +713,31 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    Button(
+                        onClick = {
+                            viewModel.saveTtsSettings(
+                                ttsBaseUrl = ttsBaseUrl,
+                                ttsModelId = ttsModelId,
+                                selectedVoiceId = voiceIdInput,
+                                secondaryVoiceId = secondaryVoiceIdInput,
+                                narrationSpeed = narrationSpeed
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("save_settings_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = ForgeCoral)
+                    ) {
+                        Icon(Icons.Rounded.Save, contentDescription = "Save Audio Settings")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save Audio & Voice Settings", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
-            // 3. CUSTOM PNG CHARACTER SPRITE MANAGER
+            // 2. CUSTOM PNG CHARACTER SPRITE MANAGER
             CharacterSpriteManagerCard(
                 customSpritePaths = settings.customSpritePaths,
                 previewSprites = previewCustomSprites,
@@ -1338,14 +747,14 @@ fun SettingsScreen(
                 onToggleStickerOutline = { viewModel.setSpriteStickerOutline(it) }
             )
 
-            // 4. CUSTOM BGM AUDIO STUDIO
+            // 3. CUSTOM BGM AUDIO STUDIO
             CustomBgmCard(
                 customBgmName = settings.customBgmName,
                 onImportBgm = { uri -> viewModel.importCustomBgm(uri) },
                 onClearBgm = { viewModel.clearCustomBgm() }
             )
 
-            // 5. EDITABLE TAGALOG PRONUNCIATION DICTIONARY
+            // 4. EDITABLE PRONUNCIATION DICTIONARY
             PronunciationDictionaryCard(
                 entries = settings.pronunciationDictionary,
                 onUpsertEntry = { orig, spoken -> viewModel.upsertPronunciation(orig, spoken) },
@@ -1355,32 +764,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
-    }
-
-    if (isModelSheetVisible) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModelPickerBottomSheet(
-            sheetState = sheetState,
-            models = detectedModels,
-            selectedModelId = selectedModelId,
-            showAllRawModels = showAllRawModels,
-            onToggleShowAllRaw = { checked ->
-                viewModel.setShowAllRawModels(
-                    showAll = checked,
-                    baseUrl = llmBaseUrl,
-                    apiKey = llmApiKey
-                )
-            },
-            onSelectModel = { model ->
-                selectedModelId = model.id
-                viewModel.selectDetectedModel(
-                    baseUrl = llmBaseUrl,
-                    apiKey = llmApiKey,
-                    modelId = model.id
-                )
-            },
-            onDismiss = { viewModel.dismissModelPickerSheet() }
-        )
     }
 }
 
@@ -1413,185 +796,6 @@ private fun DetectionStatusBanner(
                 color = accent,
                 fontWeight = FontWeight.SemiBold
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ModelPickerBottomSheet(
-    sheetState: androidx.compose.material3.SheetState,
-    models: List<DetectedModel>,
-    selectedModelId: String,
-    showAllRawModels: Boolean,
-    onToggleShowAllRaw: (Boolean) -> Unit,
-    onSelectModel: (DetectedModel) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    val filtered = remember(models, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isEmpty()) models
-        else models.filter {
-            it.id.contains(q, ignoreCase = true) ||
-                it.displayName.contains(q, ignoreCase = true)
-        }
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = StudioSurface,
-        modifier = Modifier.testTag("model_picker_sheet")
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Detected Models (${models.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Tap any model to apply immediately",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextButton(onClick = { onToggleShowAllRaw(!showAllRawModels) }) {
-                    Text(
-                        text = if (showAllRawModels) "Chat Only" else "Show All Raw",
-                        color = ForgeCyan
-                    )
-                }
-            }
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search models") },
-                placeholder = { Text("gemini-2.5, qwen, deepseek, llama...") },
-                singleLine = true,
-                leadingIcon = {
-                    Icon(Icons.Rounded.Search, contentDescription = "Search models")
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("model_search_input"),
-                colors = studioTextFieldColors()
-            )
-
-            HorizontalDivider(color = StudioOutline)
-
-            if (filtered.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No matching models for \"$searchQuery\"",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 380.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(filtered, key = { it.id }) { model ->
-                        val isSelected = model.id == selectedModelId
-                        Surface(
-                            color = if (isSelected) ForgeCyan.copy(alpha = 0.16f) else StudioSurfaceElevated,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) ForgeCyan else StudioOutline
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectModel(model) }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = model.displayName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected || model.isRecommended) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) ForgeCyan else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (model.isRecommended) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Surface(
-                                            color = EmeraldSuccess.copy(alpha = 0.16f),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.AutoAwesome,
-                                                    contentDescription = null,
-                                                    tint = EmeraldSuccess,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Text(
-                                                    text = "Recommended for Tagalog JSON",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = EmeraldSuccess
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                if (isSelected) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Icon(
-                                        imageVector = Icons.Rounded.CheckCircle,
-                                        contentDescription = "Selected model",
-                                        tint = ForgeCyan,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
