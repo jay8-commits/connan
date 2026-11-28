@@ -130,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val uiMessage: StateFlow<String?> = _uiMessage.asStateFlow()
 
     // Interactive Live Preview state
-    private val _previewPlaying = MutableStateFlow(true)
+    private val _previewPlaying = MutableStateFlow(false)
     val previewPlaying: StateFlow<Boolean> = _previewPlaying.asStateFlow()
 
     private val _previewTimeMs = MutableStateFlow(0.0)
