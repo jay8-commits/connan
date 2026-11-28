@@ -1,14 +1,14 @@
 <resources>
-    <string name="app_name">ToonForge Tagalog</string>
+    <string name="app_name">TWIS</string>
     <string name="tab_studio">Studio</string>
     <string name="tab_videos">Videos</string>
     <string name="tab_settings">API &amp; Settings</string>
-    <string name="studio_subtitle">Direct Script Animation Studio</string>
+    <string name="studio_subtitle">Direct Script Video Studio</string>
     <string name="generate_video_cta">Generate Animated Video</string>
     <string name="cancel_generation_cta">Cancel Render</string>
     <string name="save_changes_btn">Save Changes</string>
     <string name="notification_channel_name">Video Generation</string>
-    <string name="notification_channel_desc">Shows live progress while ToonForge renders your animated video.</string>
+    <string name="notification_channel_desc">Shows live progress while TWIS renders your animated video.</string>
     <string name="empty_videos_title">No rendered videos yet</string>
     <string name="empty_videos_tip">Create your first animated video in the Studio tab and it will appear here in Movies/ToonForgeTagalog.</string>
 </resources>

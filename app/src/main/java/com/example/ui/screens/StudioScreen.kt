@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,12 +25,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
@@ -39,13 +40,16 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MovieCreation
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueuePlayNext
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,6 +68,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -73,6 +79,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.BuiltInPrompts
@@ -81,12 +88,17 @@ import com.example.model.PipelineStep
 import com.example.model.VideoAspectRatio
 import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
+import com.example.ui.theme.ForgeCoralDark
 import com.example.ui.theme.ForgeCyan
 import com.example.ui.theme.ForgeMint
+import com.example.ui.theme.StudioObsidian
 import com.example.ui.theme.StudioOutline
+import com.example.ui.theme.StudioOutlineSpecular
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
 import com.example.ui.theme.StudioSurfaceHighlight
+import com.example.ui.theme.TextMuted
+import com.example.ui.theme.TextSecondary
 import com.example.ui.viewmodel.MainViewModel
 
 @Composable
@@ -176,28 +188,61 @@ fun StudioScreen(
             // Format & Dual Voices Selector
             Card(
                 colors = CardDefaults.cardColors(containerColor = StudioSurface),
-                border = BorderStroke(1.dp, StudioOutline),
+                border = BorderStroke(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+                    )
+                ),
                 shape = MaterialTheme.shapes.large
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Video Format & Dual Voices",
-                        style = MaterialTheme.typography.titleSmall
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ForgeCoral.copy(alpha = 0.14f))
+                                .border(1.dp, ForgeCoral.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Tune,
+                                contentDescription = null,
+                                tint = ForgeCoral,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Video Format & Dual Voices",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Canvas aspect ratio & ElevenLabs character routing",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
 
                     // Aspect Ratio Switcher (9:16 Vertical vs 16:9 Widescreen)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             text = "Video Aspect Ratio",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = TextSecondary
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             VideoAspectRatio.entries.forEach { ratioOption ->
                                 val selected = aspectRatio == ratioOption
@@ -205,19 +250,19 @@ fun StudioScreen(
                                 val tag = if (ratioOption == VideoAspectRatio.PORTRAIT_9_16) "aspect_ratio_9_16" else "aspect_ratio_16_9"
                                 Surface(
                                     onClick = { viewModel.selectAspectRatio(ratioOption) },
-                                    color = if (selected) accent.copy(alpha = 0.16f) else StudioSurfaceElevated,
-                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (selected) accent.copy(alpha = 0.14f) else StudioSurfaceElevated,
+                                    shape = RoundedCornerShape(14.dp),
                                     border = BorderStroke(
                                         width = if (selected) 1.5.dp else 1.dp,
-                                        color = if (selected) accent else StudioOutline
+                                        color = if (selected) accent.copy(alpha = 0.85f) else StudioOutline
                                     ),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .heightIn(min = 48.dp)
+                                        .heightIn(min = 52.dp)
                                         .testTag(tag)
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
@@ -233,7 +278,7 @@ fun StudioScreen(
                                                 "1920x1080 • YouTube"
                                             },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (selected) accent.copy(alpha = 0.9f) else TextSecondary,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -258,6 +303,16 @@ fun StudioScreen(
                                     voiceInput = preset.id
                                     viewModel.selectVoiceId(preset.id)
                                 },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = ForgeCoral.copy(alpha = 0.18f),
+                                    selectedLabelColor = ForgeCoral
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = active,
+                                    borderColor = StudioOutline,
+                                    selectedBorderColor = ForgeCoral.copy(alpha = 0.7f)
+                                ),
                                 label = {
                                     Text(
                                         text = "${preset.name} • ${preset.tag}",
@@ -325,39 +380,58 @@ fun StudioScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
-                        onClick = { triggerGenerate() },
+                    Box(
                         modifier = Modifier
                             .weight(1f)
                             .height(54.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(ForgeCoral, ForgeCoralDark)
+                                )
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.22f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .clickable { triggerGenerate() }
                             .testTag("generate_video_button"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ForgeCoral)
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.MovieCreation,
-                            contentDescription = "Generate Video"
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (stagedRenderQueue.isNotEmpty()) {
-                                "Render Batch (${stagedRenderQueue.size})"
-                            } else {
-                                "Generate Video"
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MovieCreation,
+                                contentDescription = "Generate Video",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (stagedRenderQueue.isNotEmpty()) {
+                                    "Render Batch (${stagedRenderQueue.size})"
+                                } else {
+                                    "Generate Video"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
                     OutlinedButton(
                         onClick = { viewModel.addToRenderQueue(voiceIdDraft = voiceInput, voiceIdCatDraft = voiceCatInput) },
                         enabled = stagedRenderQueue.size < maxQueue,
-                        border = BorderStroke(1.5.dp, ForgeCyan.copy(alpha = 0.8f)),
+                        border = BorderStroke(1.2.dp, ForgeCyan.copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(16.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                         modifier = Modifier
                             .height(54.dp)
                             .testTag("add_to_queue_button")
@@ -464,56 +538,126 @@ private fun StudioTopHeader(aspectRatio: VideoAspectRatio) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(
                 Brush.linearGradient(
-                    colors = listOf(Color(0xFF1E172E), Color(0xFF15192B), Color(0xFF281718))
+                    colors = listOf(Color(0xFF15192B), Color(0xFF0E1320), Color(0xFF1B141D))
                 )
             )
-            .border(1.dp, StudioOutline, RoundedCornerShape(20.dp))
-            .padding(16.dp)
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(ForgeCoral.copy(alpha = 0.22f), Color.Transparent),
+                        center = Offset(size.width * 0.14f, size.height * 0.22f),
+                        radius = size.width * 0.45f
+                    ),
+                    center = Offset(size.width * 0.14f, size.height * 0.22f),
+                    radius = size.width * 0.45f
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(ForgeCyan.copy(alpha = 0.14f), Color.Transparent),
+                        center = Offset(size.width * 0.92f, size.height * 0.85f),
+                        radius = size.width * 0.4f
+                    ),
+                    center = Offset(size.width * 0.92f, size.height * 0.85f),
+                    radius = size.width * 0.4f
+                )
+            }
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        StudioOutlineSpecular.copy(alpha = 0.8f),
+                        StudioOutline.copy(alpha = 0.7f)
+                    )
+                ),
+                shape = RoundedCornerShape(22.dp)
+            )
+            .padding(horizontal = 16.dp, vertical = 15.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "ToonForge Tagalog",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${aspectRatio.width}x${aspectRatio.height} @ 30fps On-Device Motion & WebView Studio",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFB5BDD6)
-                )
-            }
-            Surface(
-                color = ForgeCoral.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, ForgeCoral.copy(alpha = 0.5f))
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(ForgeCoral, ForgeAmber)
+                            )
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = null,
-                        tint = ForgeAmber,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = aspectRatio.shortLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = ForgeAmber
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "TWIS Studio Emblem",
+                        tint = StudioObsidian,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
+
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "TWIS",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontSize = 23.sp,
+                                letterSpacing = 1.2.sp
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Surface(
+                            color = Color.White.copy(alpha = 0.06f),
+                            shape = CircleShape,
+                            border = BorderStroke(0.75.dp, StudioOutlineSpecular.copy(alpha = 0.55f))
+                        ) {
+                            Text(
+                                text = "made by jay solis",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                color = TextMuted,
+                                modifier = Modifier
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .testTag("creator_credit_badge")
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "${aspectRatio.width}x${aspectRatio.height} • 30fps Direct Video Engine",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Surface(
+                color = ForgeCoral.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, ForgeCoral.copy(alpha = 0.45f))
+            ) {
+                Text(
+                    text = aspectRatio.shortLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = ForgeAmber,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
             }
         }
     }
@@ -528,18 +672,23 @@ private fun DirectScriptInputCard(
     onClear: () -> Unit
 ) {
     val summary = remember(scriptText) {
-        if (scriptText.isBlank()) "Ready for JSON, HTML/SVG, or Script" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
+        if (scriptText.isBlank()) "Ready" else DirectStoryboardParser.estimatePreviewSummary(scriptText)
     }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, ForgeMint.copy(alpha = 0.50f)),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(ForgeMint.copy(alpha = 0.55f), StudioOutline.copy(alpha = 0.8f))
+            )
+        ),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.testTag("direct_script_card")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -548,17 +697,26 @@ private fun DirectScriptInputCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Code,
-                        contentDescription = "Direct Storyboard / Script Input",
-                        tint = ForgeMint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ForgeMint.copy(alpha = 0.14f))
+                            .border(1.dp, ForgeMint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Code,
+                            contentDescription = "Direct Storyboard / Script Input",
+                            tint = ForgeMint,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                     Text(
-                        text = "Direct Storyboard / Script Input",
+                        text = "Direct Storyboard / Script",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -566,23 +724,24 @@ private fun DirectScriptInputCard(
                     )
                 }
                 Surface(
-                    color = ForgeMint.copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(8.dp)
+                    color = ForgeMint.copy(alpha = 0.14f),
+                    shape = CircleShape,
+                    border = BorderStroke(0.8.dp, ForgeMint.copy(alpha = 0.35f))
                 ) {
                     Text(
                         text = summary,
                         style = MaterialTheme.typography.labelSmall,
                         color = ForgeMint,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                     )
                 }
             }
 
             Text(
-                text = "Paste full scene JSON, raw HTML5/SVG animation code, or plain script in any language — renders directly with ElevenLabs TTS + MP4 export.",
+                text = "Paste scene JSON, HTML5/SVG animation code, or plain script in any language — renders with ElevenLabs TTS & MP4 export.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = TextSecondary
             )
 
             Row(
@@ -963,5 +1122,5 @@ fun studioTextFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = ForgeCoral,
     unfocusedBorderColor = StudioOutline,
     focusedContainerColor = StudioSurfaceElevated,
-    unfocusedContainerColor = StudioSurfaceElevated
+    unfocusedContainerColor = StudioObsidian.copy(alpha = 0.55f)
 )

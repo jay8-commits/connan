@@ -60,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -76,6 +77,7 @@ import com.example.ui.theme.ForgeCoral
 import com.example.ui.theme.ForgeCyan
 import com.example.ui.theme.ForgeMint
 import com.example.ui.theme.StudioOutline
+import com.example.ui.theme.StudioOutlineSpecular
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
 import com.example.ui.theme.StudioSurfaceHighlight
@@ -338,11 +340,16 @@ fun CharacterSpriteManagerCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, StudioOutline),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+            )
+        ),
         shape = MaterialTheme.shapes.large
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -350,14 +357,25 @@ fun CharacterSpriteManagerCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Face,
-                        contentDescription = "Character Sprite Manager",
-                        tint = ForgeMint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ForgeMint.copy(alpha = 0.14f))
+                            .border(1.dp, ForgeMint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Face,
+                            contentDescription = "Character Sprite Manager",
+                            tint = ForgeMint,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                     Text(
                         text = "Custom PNG Character Sprites",
                         style = MaterialTheme.typography.titleSmall,
@@ -536,11 +554,16 @@ fun CustomBgmCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, StudioOutline),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+            )
+        ),
         shape = MaterialTheme.shapes.large
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -548,14 +571,25 @@ fun CustomBgmCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = "Audio BGM Studio",
-                        tint = ForgeAmber,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ForgeAmber.copy(alpha = 0.14f))
+                            .border(1.dp, ForgeAmber.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MusicNote,
+                            contentDescription = "Audio BGM Studio",
+                            tint = ForgeAmber,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                     Text(
                         text = "Background Music & Sidechain",
                         style = MaterialTheme.typography.titleSmall,
@@ -659,11 +693,16 @@ fun PronunciationDictionaryCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, StudioOutline),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+            )
+        ),
         shape = MaterialTheme.shapes.large
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -671,14 +710,25 @@ fun PronunciationDictionaryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.RecordVoiceOver,
-                        contentDescription = "TTS Pronunciation Dictionary",
-                        tint = ForgeCyan,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ForgeCyan.copy(alpha = 0.14f))
+                            .border(1.dp, ForgeCyan.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.RecordVoiceOver,
+                            contentDescription = "TTS Pronunciation Dictionary",
+                            tint = ForgeCyan,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                     Text(
                         text = "TTS Pronunciation Dictionary",
                         style = MaterialTheme.typography.titleSmall,

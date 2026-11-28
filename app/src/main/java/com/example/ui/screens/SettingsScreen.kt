@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -63,11 +65,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.BuiltInPrompts
@@ -79,8 +84,10 @@ import com.example.ui.theme.ForgeCrimson
 import com.example.ui.theme.ForgeCyan
 import com.example.ui.theme.ForgeMint
 import com.example.ui.theme.StudioOutline
+import com.example.ui.theme.StudioOutlineSpecular
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
+import com.example.ui.theme.TextMuted
 import com.example.ui.viewmodel.DetectionBannerState
 import com.example.ui.viewmodel.MainViewModel
 import java.util.Locale
@@ -146,7 +153,7 @@ fun SettingsScreen(
         ) {
             Column {
                 Text(
-                    text = "API & Studio Settings",
+                    text = "TWIS • API & Studio Settings",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -160,11 +167,16 @@ fun SettingsScreen(
             // 1. ELEVENLABS / THIRD-PARTY TTS PROXY & VOICE AUTO-DETECTOR
             Card(
                 colors = CardDefaults.cardColors(containerColor = StudioSurface),
-                border = BorderStroke(1.dp, StudioOutline),
+                border = BorderStroke(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+                    )
+                ),
                 shape = MaterialTheme.shapes.large
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Row(
@@ -172,14 +184,25 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.Key,
-                                contentDescription = null,
-                                tint = ForgeAmber,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ForgeAmber.copy(alpha = 0.14f))
+                                    .border(1.dp, ForgeAmber.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Key,
+                                    contentDescription = null,
+                                    tint = ForgeAmber,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
                             Text(
                                 text = "ElevenLabs / TTS Proxy",
                                 style = MaterialTheme.typography.titleSmall,
@@ -762,7 +785,18 @@ fun SettingsScreen(
                 onResetDefaults = { viewModel.resetPronunciationDictionary() }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "TWIS • made by jay solis",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextMuted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .testTag("settings_creator_footer")
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }

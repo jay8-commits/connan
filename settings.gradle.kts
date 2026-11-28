@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ToonForgeTagalog"
+rootProject.name = "TWIS"
 
 include(":app")

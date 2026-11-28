@@ -317,7 +317,7 @@ class VideoGenerationService : Service() {
 
     private fun startQueueForegroundAndRun() {
         ensureNotificationChannel()
-        val initialNotif = buildNotification("Starting ToonForge Tagalog pipeline...", 5)
+        val initialNotif = buildNotification("Starting TWIS studio pipeline...", 5)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -925,7 +925,7 @@ class VideoGenerationService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("ToonForge Tagalog Studio")
+            .setContentTitle("TWIS Studio")
             .setContentText(content)
             .setProgress(100, progressPct, progressPct == 0)
             .setOngoing(true)

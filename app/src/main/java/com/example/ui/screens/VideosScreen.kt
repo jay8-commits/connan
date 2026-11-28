@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -76,6 +77,7 @@ import com.example.ui.theme.ForgeAmber
 import com.example.ui.theme.ForgeCoral
 import com.example.ui.theme.ForgeCyan
 import com.example.ui.theme.StudioOutline
+import com.example.ui.theme.StudioOutlineSpecular
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.StudioSurfaceElevated
 import com.example.ui.viewmodel.MainViewModel
@@ -116,7 +118,7 @@ fun VideosScreen(
             ) {
                 Column {
                     Text(
-                        text = "Rendered Videos",
+                        text = "TWIS • Rendered Videos",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -272,7 +274,12 @@ private fun SavedVideoCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = StudioSurface),
-        border = BorderStroke(1.dp, StudioOutline),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                colors = listOf(StudioOutlineSpecular.copy(alpha = 0.65f), StudioOutline.copy(alpha = 0.7f))
+            )
+        ),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .fillMaxWidth()

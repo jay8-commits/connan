@@ -20,6 +20,6 @@ class ExampleUnitTest {
         val stringsFile = candidates.firstOrNull { it.exists() }
         requireNotNull(stringsFile) { "strings.xml not found" }
         val xml = stringsFile.readText()
-        assertTrue(xml.contains("<string name=\"app_name\">ToonForge Tagalog</string>"))
+        assertTrue(xml.contains("<string name=\"app_name\">TWIS</string>"))
     }
 }
